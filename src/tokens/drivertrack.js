@@ -109,6 +109,16 @@ export const drivertrack = {
     },
   },
 
+  // Product screenshots living in R2 under shots/. Framed with rounded corners and
+  // a soft shadow on a transparent background, so they sit on any template ground.
+  shots: {
+    base: process.env.ASSET_BASE || "",
+    available: ["pipeline", "conversation", "screen-pass", "screen-fail"],
+    url(name) {
+      return this.base ? `${this.base.replace(/\/$/, "")}/shots/${name}.png` : "";
+    },
+  },
+
   // Platform output sizes this brand renders to
   formats: {
     linkedin: { w: 1200, h: 627 },

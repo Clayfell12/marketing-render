@@ -53,6 +53,36 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
   .ticket .sep{opacity:.4;}
   h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:6px;}
 
+  .tabs{display:flex;gap:6px;margin-top:12px;}
+  .tabs button{flex:1;border:1px solid var(--hairline);background:var(--panel);
+    color:var(--ink-muted);font-size:14px;font-weight:700;padding:10px;border-radius:10px;
+    font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px;}
+  .tabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .count{background:rgba(255,255,255,.22);border-radius:999px;padding:1px 7px;font-size:12px;}
+  .tabs button[aria-pressed="false"] .count{background:var(--panel-2);}
+
+  .pcard{background:var(--panel);border:1px solid var(--hairline);border-radius:var(--r);
+    overflow:hidden;margin-bottom:14px;}
+  .pcard img{width:100%;display:block;background:#fff;}
+  .pbody{padding:14px 15px;}
+  .pmeta{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;font-weight:700;color:var(--ink-faint);margin-bottom:8px;}
+  .badge{padding:3px 9px;border-radius:999px;font-size:11px;letter-spacing:.06em;}
+  .b-draft{background:rgba(152,162,179,.16);color:var(--ink-muted);}
+  .b-approved{background:rgba(37,99,235,.18);color:#7FA9FF;}
+  .b-posted{background:rgba(74,222,128,.16);color:#6EE7A0;}
+  .b-rejected{background:rgba(248,113,113,.14);color:var(--danger);}
+  .pnote{font-size:13px;color:var(--ink-muted);line-height:1.45;margin-bottom:10px;}
+  .pcap{font-size:14px;color:var(--ink);line-height:1.5;white-space:pre-wrap;
+    max-height:96px;overflow:hidden;position:relative;}
+  .pcap.open{max-height:none;}
+  .more{font-size:13px;font-weight:700;color:var(--accent);margin-top:6px;}
+  .pacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px;}
+  .pacts button{flex:1;min-width:88px;border:1px solid var(--hairline);background:var(--panel-2);
+    color:var(--ink);border-radius:999px;padding:11px;font-size:14px;font-weight:700;font-family:inherit;}
+  .pacts button.ok{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .pacts button.bad{color:var(--danger);}
+
   main{padding:18px;display:flex;flex-direction:column;gap:22px;}
   .group{display:flex;flex-direction:column;gap:10px;}
   .glabel{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
@@ -133,9 +163,13 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
 <header>
   <div class="ticket" id="ticket"></div>
   <h1>Studio</h1>
+  <div class="tabs">
+    <button data-v="make" aria-pressed="true">Make</button>
+    <button data-v="queue" aria-pressed="false">Queue <span class="count" id="qc"></span></button>
+  </div>
 </header>
 
-<main>
+<main id="makeView">
   <div class="group">
     <div class="glabel">Brand</div>
     <div class="seg" id="brands"></div>
@@ -158,6 +192,10 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
   </div>
 
   <div id="err"></div>
+</main>
+
+<main id="queueView" style="display:none">
+  <div id="queue"></div>
 </main>
 
 <div class="bar">
@@ -343,7 +381,125 @@ $("#share").onclick = async () => {
   }
 };
 
+// ---- views -------------------------------------------------------------
+let view = "make";
+let posts = [];
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView(b.dataset.v));
+
+function setView(v) {
+  view = v;
+  document.querySelectorAll(".tabs button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  $("#makeView").style.display = v === "make" ? "flex" : "none";
+  $("#queueView").style.display = v === "queue" ? "block" : "none";
+  document.querySelector(".bar").style.display = v === "make" ? "block" : "none";
+  if (v === "queue") loadQueue();
+}
+
+function esc(x) { return (x || "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+async function loadQueue() {
+  $("#queue").innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const headers = {}; if (KEY) headers["x-api-key"] = KEY;
+    const r = await fetch("/posts", { headers });
+    if (!r.ok) throw new Error("Could not load the queue (" + r.status + ")");
+    const j = await r.json();
+    posts = j.posts || [];
+    drawQueue();
+  } catch (e) {
+    $("#queue").innerHTML = '<div class="err">' + e.message + '</div>';
+  }
+}
+
+function drawQueue() {
+  const live = posts.filter(p => p.status !== "rejected");
+  $("#qc").textContent = live.length ? live.length : "";
+  if (!posts.length) {
+    $("#queue").innerHTML = '<div class="empty">Nothing in the queue yet. ' +
+      'Posts planned in chat land here ready to review.</div>';
+    return;
+  }
+  $("#queue").innerHTML = posts.map(p => {
+    const when = p.scheduledFor ? p.scheduledFor : "unscheduled";
+    return '<div class="pcard" data-id="' + p.id + '">' +
+      (p.imageUrl ? '<img src="' + p.imageUrl + '" alt="">' : "") +
+      '<div class="pbody">' +
+        '<div class="pmeta"><span class="badge b-' + p.status + '">' + p.status + '</span>' +
+          '<span>' + esc(p.template) + '</span><span class="sep">·</span><span>' + esc(when) + '</span></div>' +
+        (p.note ? '<div class="pnote">' + esc(p.note) + '</div>' : "") +
+        '<div class="pcap" data-cap>' + esc(p.caption) + '</div>' +
+        (p.caption && p.caption.length > 220 ? '<div class="more" data-more>Show all</div>' : "") +
+        '<div class="pacts">' +
+          '<button data-a="copy">Copy caption</button>' +
+          '<button data-a="share">Share image</button>' +
+          (p.status === "draft" ? '<button data-a="approve" class="ok">Approve</button>' : "") +
+          (p.status === "approved" ? '<button data-a="posted" class="ok">Mark posted</button>' : "") +
+          '<button data-a="reject" class="bad">Reject</button>' +
+        '</div>' +
+      '</div></div>';
+  }).join("");
+
+  $("#queue").querySelectorAll(".pcard").forEach(card => {
+    const p = posts.find(x => x.id === card.dataset.id);
+    const more = card.querySelector("[data-more]");
+    if (more) more.onclick = () => {
+      card.querySelector("[data-cap]").classList.toggle("open");
+      more.textContent = more.textContent === "Show all" ? "Show less" : "Show all";
+    };
+    card.querySelectorAll("[data-a]").forEach(btn => btn.onclick = () => act(p, btn.dataset.a));
+  });
+}
+
+async function act(p, a) {
+  if (a === "copy") {
+    const text = p.caption + (p.firstComment ? "\n\n---- first comment ----\n" + p.firstComment : "");
+    try { await navigator.clipboard.writeText(text); btnFlash(); } catch (e) {}
+    return;
+  }
+  if (a === "share") {
+    if (!p.imageUrl) return;
+    try {
+      const blob = await (await fetch(p.imageUrl)).blob();
+      const file = new File([blob], p.id + ".png", { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+      } else {
+        const a2 = document.createElement("a");
+        a2.href = URL.createObjectURL(blob); a2.download = p.id + ".png"; a2.click();
+      }
+    } catch (e) {}
+    return;
+  }
+  const status = a === "approve" ? "approved" : a === "posted" ? "posted" : "rejected";
+  try {
+    const headers = { "content-type": "application/json" };
+    if (KEY) headers["x-api-key"] = KEY;
+    const r = await fetch("/posts/" + p.id, {
+      method: "PATCH", headers, body: JSON.stringify({ status }),
+    });
+    if (!r.ok) throw new Error("Update failed");
+    const updated = await r.json();
+    posts = posts.map(x => x.id === updated.id ? updated : x);
+    drawQueue();
+  } catch (e) {
+    $("#queue").innerHTML = '<div class="err">' + e.message + '</div>' + $("#queue").innerHTML;
+  }
+}
+
+function btnFlash() {
+  const t = document.createElement("div");
+  t.textContent = "Caption copied";
+  t.style.cssText = "position:fixed;left:50%;bottom:80px;transform:translateX(-50%);" +
+    "background:var(--panel-2);border:1px solid var(--hairline);color:var(--ink);" +
+    "padding:12px 20px;border-radius:999px;font-size:14px;font-weight:600;z-index:99;";
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1500);
+}
+
 render();
+loadQueue();
 </script>
 </body>
 </html>`;

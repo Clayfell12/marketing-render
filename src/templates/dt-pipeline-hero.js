@@ -21,7 +21,8 @@ export function pipelineHero(data = {}) {
     headline = "You wake up to a pipeline, not a pile of CVs",
     support = "DriverTrack screens and sorts every applicant by call or text, day or night. Consent-first, UK-hosted, built for DSPs.",
     cta = "Book a 15 minute demo",
-    heroImage = null,   // null = dashed placeholder zone; URL = baked in
+    heroImage = "pipeline", // a shot name (pipeline, conversation, screen-pass,
+                            // screen-fail), a full URL, or null for an empty zone
     showQueue = true,
   } = data;
 
@@ -59,8 +60,13 @@ export function pipelineHero(data = {}) {
     )
     .join("");
 
-  const heroSlot = heroImage
-    ? `<div class="herobox"><img class="heroimg" src="${heroImage}" /></div>`
+  // Accept either a short shot name or a full URL
+  const heroSrc = heroImage
+    ? (/^https?:|^data:/.test(heroImage) ? heroImage : t.shots.url(heroImage))
+    : null;
+
+  const heroSlot = heroSrc
+    ? `<div class="herobox"><img class="heroimg" src="${heroSrc}" /></div>`
     : `<div class="heroslot"><span>hero image overlays here</span></div>`;
 
   const logoUrl = t.logo.url("accent");
@@ -136,7 +142,7 @@ export const schema = {
     { name: "headline", label: "Headline", type: "textarea", rows: 2 },
     { name: "support", label: "Support line", type: "textarea", rows: 3 },
     { name: "cta", label: "Button", type: "text" },
-    { name: "heroImage", label: "Hero image URL", type: "url", optional: true,
-      hint: "Leave blank to render an empty zone you can drop a shot into later." },
+    { name: "heroImage", label: "Hero image", type: "text", optional: true,
+      hint: "pipeline, conversation, screen-pass or screen-fail. Or paste a full URL. Blank for an empty zone." },
   ],
 };

@@ -11,6 +11,7 @@ import { uploadToR2 } from "./lib/r2.js";
 import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
 import { appHtml } from "./app.js";
 import { generateCopy } from "./lib/copy.js";
+import { createPost, listPosts, getPost, updatePost, deletePost } from "./lib/posts.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -54,6 +55,47 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { ok: true, templates: Object.keys(templates) });
+  }
+
+  // --- Post queue ---------------------------------------------------------
+  if (req.url === "/posts" || req.url.startsWith("/posts/")) {
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+    const parts = req.url.split("?")[0].split("/").filter(Boolean); // ["posts", id?]
+    const id = parts[1];
+
+    try {
+      if (req.method === "GET" && !id) {
+        return send(res, 200, { ok: true, posts: await listPosts() });
+      }
+      if (req.method === "GET" && id) {
+        const p = await getPost(id);
+        return p ? send(res, 200, p) : send(res, 404, { error: "not found" });
+      }
+      if (req.method === "POST" && !id) {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        // accept a single post or an array of them
+        const items = Array.isArray(body) ? body : [body];
+        const made = [];
+        for (const item of items) made.push(await createPost(item));
+        return send(res, 200, { ok: true, created: made.length, posts: made });
+      }
+      if (req.method === "PATCH" && id) {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        const p = await updatePost(id, body);
+        return p ? send(res, 200, p) : send(res, 404, { error: "not found" });
+      }
+      if (req.method === "DELETE" && id) {
+        const ok = await deletePost(id);
+        return ok ? send(res, 200, { ok: true }) : send(res, 404, { error: "not found" });
+      }
+      return send(res, 405, { error: "method not allowed" });
+    } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
   }
 
   // Copy generation

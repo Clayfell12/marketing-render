@@ -61,6 +61,35 @@ copy short enough to fit the layout.
 ### `GET /health`
 Returns `{ ok: true, templates: [...] }`.
 
+### Post queue
+
+| Method | Route | Does |
+|---|---|---|
+| `GET` | `/posts` | List all posts, newest first |
+| `GET` | `/posts/:id` | One post |
+| `POST` | `/posts` | Create. Accepts one object or an array. Renders and stores the image. |
+| `PATCH` | `/posts/:id` | Update. Changing `data` re-renders the image. |
+| `DELETE` | `/posts/:id` | Remove the post and its render |
+
+Post shape:
+```json
+{
+  "brand": "drivertrack",
+  "template": "dt-verdict",
+  "format": "square",
+  "data": { "headline": "..." },
+  "caption": "the LinkedIn caption",
+  "firstComment": "goes in the first comment",
+  "altText": "for accessibility",
+  "note": "why this angle",
+  "scheduledFor": "2026-08-04",
+  "status": "draft"
+}
+```
+Statuses: `draft`, `approved`, `posted`, `rejected`.
+
+Posts live in R2 under `posts/`, renders under `renders/`.
+
 ### `POST /copy`
 ```json
 { "template": "dt-first-to-driver", "brief": "Peak hiring is coming, get in early" }
