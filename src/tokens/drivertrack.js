@@ -73,8 +73,8 @@ export const drivertrack = {
   // ASSET_BASE is the public R2 URL base (set in Railway); logos live under it.
   logo: {
     base: process.env.ASSET_BASE || "",
-    accent: "brand/dt-logo-mono-accent.svg", // for light backgrounds
-    white: "brand/dt-logo-mono-white.svg",   // for dark backgrounds and photography
+    accent: "brand/dt-logo-mono-accent.svg.png", // for light backgrounds
+    white: "brand/dt-logo-mono-white.svg.png",   // for dark backgrounds and photography
     clearSpaceRatio: 1, // clear space = height of the mark, all four sides
     url(which = "accent") {
       const path = which === "white" ? this.white : this.accent;
@@ -85,7 +85,7 @@ export const drivertrack = {
   // Platform output sizes this brand renders to
   formats: {
     linkedin: { w: 1200, h: 627 },
-    square: { w: 1080, h: 1080 },
+    square: { w: 1200, h: 1200 },
     portrait: { w: 1080, h: 1350 },
     story: { w: 1080, h: 1920 },
   },

@@ -8,7 +8,8 @@
 import http from "node:http";
 import { renderToPng } from "./lib/render.js";
 import { uploadToR2 } from "./lib/r2.js";
-import { templates } from "./templates/index.js";
+import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
+import { appHtml } from "./app.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -35,6 +36,20 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("access-control-allow-headers", "content-type, x-api-key");
   res.setHeader("access-control-allow-methods", "POST, GET, OPTIONS");
   if (req.method === "OPTIONS") return send(res, 204, "");
+
+  // Mobile app UI
+  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+    const html = appHtml({ schemas, brands, requiresKey: Boolean(API_KEY) });
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    return res.end(html);
+  }
+
+  // Template defaults, so the app can prefill the form with the real copy
+  if (req.method === "GET" && req.url.startsWith("/defaults/")) {
+    const key = decodeURIComponent(req.url.slice("/defaults/".length));
+    if (!templates[key]) return send(res, 404, { error: "unknown template" });
+    return send(res, 200, defaultsFor(key));
+  }
 
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { ok: true, templates: Object.keys(templates) });
