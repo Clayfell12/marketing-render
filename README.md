@@ -30,6 +30,8 @@ No design canvas, no per-template manual step. New template = new component.
 | `R2_SECRET_ACCESS_KEY` | Upload to R2 | R2 API token secret. |
 | `R2_BUCKET` | Upload to R2 | Bucket name. |
 | `R2_PUBLIC_BASE` | Upload to R2 | Usually same as `ASSET_BASE`. |
+| `ANTHROPIC_API_KEY` | Copy generation | From console.anthropic.com. Without it the Brief panel is hidden. |
+| `COPY_MODEL` | Optional | Defaults to `claude-sonnet-5`. |
 
 ## Mobile app
 
@@ -43,10 +45,27 @@ full screen with its own icon like a native app.
 New templates appear in the app automatically as soon as they are registered,
 because each template exports a field schema the app reads at load.
 
+### Writing copy in the app
+
+With `ANTHROPIC_API_KEY` set, a Brief box appears above the fields. Type a rough
+note about the post, tap Write the copy, and the fields fill in. Edit anything you
+want, then render.
+
+Brand voice lives in the token files (`voice` block) and is sent with every request,
+so output sounds like the brand rather than generic SaaS marketing. Each field's
+current default is shown to the model as a worked example, which is what keeps the
+copy short enough to fit the layout.
+
 ## API
 
 ### `GET /health`
 Returns `{ ok: true, templates: [...] }`.
+
+### `POST /copy`
+```json
+{ "template": "dt-first-to-driver", "brief": "Peak hiring is coming, get in early" }
+```
+Returns `{ ok: true, values: { headline: "...", support: "..." } }`.
 
 ### `POST /render`
 ```json

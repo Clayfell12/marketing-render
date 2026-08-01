@@ -33,6 +33,33 @@ export const drivertrack = {
     dangerSoft: "#FEE2E2",
   },
 
+
+  // Voice and audience. Used by the copy generator so output sounds like the brand
+  // rather than like generic SaaS marketing.
+  voice: {
+    audience:
+      "Owners and operations managers at UK Amazon Delivery Service Partners. Thin margins, " +
+      "constant hiring, drivers lost to churn, judged on scorecard metrics. Time-poor and " +
+      "sceptical of software sold by people who have never run a DSP.",
+    register:
+      "Peer to peer, operationally literate, unimpressed by hype. Use the actual language of " +
+      "the job: routes, scorecard, callbacks, right to work, first day on road, peak. British " +
+      "English. Plain verbs. No exclamation marks.",
+    doThis: [
+      "Lead with the benefit, use the feature as proof",
+      "Be specific: numbers, days, times, places beat adjectives",
+      "Short declarative sentences. One idea per sentence",
+      "Speak to a single reader as 'you'",
+    ],
+    avoid: [
+      "Hype words: unlock, elevate, revolutionise, seamless, game-changer, supercharge",
+      "Any suggestion of Amazon endorsement or affiliation",
+      "Naming or quoting a real customer",
+      "Overstating the automated decision logic",
+      "Em dashes and en dashes",
+    ],
+  },
+
   font: {
     family: "Inter",
     // Weights available as embedded files

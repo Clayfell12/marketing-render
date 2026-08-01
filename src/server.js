@@ -10,6 +10,7 @@ import { renderToPng } from "./lib/render.js";
 import { uploadToR2 } from "./lib/r2.js";
 import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
 import { appHtml } from "./app.js";
+import { generateCopy } from "./lib/copy.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -39,7 +40,7 @@ const server = http.createServer(async (req, res) => {
 
   // Mobile app UI
   if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = appHtml({ schemas, brands, requiresKey: Boolean(API_KEY) });
+    const html = appHtml({ schemas, brands, requiresKey: Boolean(API_KEY), copyEnabled: Boolean(process.env.ANTHROPIC_API_KEY) });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
@@ -53,6 +54,29 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { ok: true, templates: Object.keys(templates) });
+  }
+
+  // Copy generation
+  if (req.method === "POST" && req.url === "/copy") {
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+    const body = await readBody(req);
+    if (!body) return send(res, 400, { error: "invalid JSON" });
+    const { template, brief } = body;
+    const schema = schemas.find((s) => s.key === template);
+    if (!schema) return send(res, 404, { error: "unknown template" });
+    if (!brief || !brief.trim()) return send(res, 400, { error: "Write a brief first." });
+    try {
+      const values = await generateCopy({
+        schema,
+        defaults: defaultsFor(template),
+        brief: brief.trim(),
+      });
+      return send(res, 200, { ok: true, values });
+    } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
   }
 
   if (req.method === "POST" && req.url === "/render") {

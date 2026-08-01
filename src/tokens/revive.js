@@ -23,6 +23,32 @@ export const revive = {
     accentInk: "#FFFFFF",
   },
 
+
+  // Voice and audience for the copy generator.
+  voice: {
+    audience:
+      "Local drivers around Barnsley with damage they are mildly annoyed about: kerbed alloys, " +
+      "a scuffed bumper, a lease car going back. Price-sensitive, comparing against a bodyshop, " +
+      "often surprised it can be done on their driveway. Also trade: dealerships and lease " +
+      "companies who care about turnaround.",
+    register:
+      "Straightforward, local, competent, no hard sell. The tone of a good tradesman who turns " +
+      "up when he says he will. Talk about the actual damage and the actual outcome. British English.",
+    doThis: [
+      "Name the specific damage and the specific outcome",
+      "Lead on mobile and on the driveway, that is the differentiator",
+      "Be concrete about area and timescale where you can",
+      "Short sentences a busy person reads at a glance",
+    ],
+    avoid: [
+      "Corporate or premium language: elevate, aesthetic, solutions, bespoke",
+      "Sounding like a national chain rather than a local operation",
+      "Over-promising on timescales",
+      "Claims about insurance work that have not been checked",
+      "Em dashes and en dashes",
+    ],
+  },
+
   font: {
     family: "Fira Sans",
     regular: 400,

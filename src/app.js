@@ -9,8 +9,8 @@
 // - Job-sheet header strip carries real state (brand, template, output size)
 //   rather than decoration.
 
-export function appHtml({ schemas, brands, requiresKey }) {
-  const data = JSON.stringify({ schemas, brands, requiresKey });
+export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
+  const data = JSON.stringify({ schemas, brands, requiresKey, copyEnabled });
 
   return `<!doctype html>
 <html lang="en">
@@ -88,6 +88,12 @@ export function appHtml({ schemas, brands, requiresKey }) {
   input:focus,textarea:focus{outline:none;border-color:var(--accent);}
   input::placeholder,textarea::placeholder{color:var(--ink-faint);}
 
+  .write{width:100%;border:1px solid var(--accent);background:transparent;color:var(--accent);
+    border-radius:999px;padding:14px;font-size:15px;font-weight:700;font-family:inherit;
+    display:flex;align-items:center;justify-content:center;gap:9px;}
+  .write:disabled{opacity:.45;}
+  .write .spin{border-color:rgba(37,99,235,.3);border-top-color:var(--accent);}
+
   /* action bar */
   .bar{position:fixed;left:0;right:0;bottom:0;z-index:30;
     background:linear-gradient(180deg,rgba(18,22,29,0) 0%,rgba(18,22,29,.94) 34%);
@@ -138,6 +144,12 @@ export function appHtml({ schemas, brands, requiresKey }) {
   <div class="group">
     <div class="glabel">Template</div>
     <div class="tpl" id="tpls"></div>
+  </div>
+
+  <div class="group" id="briefGroup">
+    <div class="glabel">Brief</div>
+    <textarea id="brief" rows="3" placeholder="What is this post about? A rough note is enough."></textarea>
+    <button class="write" id="write">Write the copy</button>
   </div>
 
   <div class="group" id="formGroup">
@@ -238,7 +250,35 @@ function drawForm() {
 }
 
 function render() { paint(); drawBrands(); drawTpls(); drawForm(); ticket();
+  $("#briefGroup").style.display = (APP.copyEnabled && state.tpl) ? "flex" : "none";
   $("#go").disabled = !state.tpl || state.busy; }
+
+async function write() {
+  const brief = $("#brief").value.trim();
+  if (!brief || !state.tpl || state.busy) return;
+  state.busy = true; fail("");
+  $("#write").innerHTML = '<span class="spin"></span>Writing';
+  $("#write").disabled = true;
+  try {
+    const headers = { "content-type": "application/json" };
+    if (KEY) headers["x-api-key"] = KEY;
+    const r = await fetch("/copy", {
+      method: "POST", headers,
+      body: JSON.stringify({ template: state.tpl, brief }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ("Copy failed (" + r.status + ")"));
+    state.values = Object.assign({}, state.values, j.values);
+    render();
+    $("#formGroup").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    fail(e.message);
+  } finally {
+    state.busy = false;
+    $("#write").textContent = "Write the copy";
+    $("#write").disabled = false;
+  }
+}
 
 function fail(msg) {
   $("#err").innerHTML = msg ? '<div class="err">' + msg + '</div>' : "";
@@ -284,6 +324,7 @@ function filename() {
 }
 
 $("#go").onclick = go;
+$("#write").onclick = write;
 $("#close").onclick = () => $("#sheet").classList.remove("up");
 $("#save").onclick = () => {
   if (!state.blob) return;
