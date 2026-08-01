@@ -454,7 +454,8 @@ function drawQueue() {
 
 async function act(p, a) {
   if (a === "copy") {
-    const text = p.caption + (p.firstComment ? "\n\n---- first comment ----\n" + p.firstComment : "");
+    const NL = String.fromCharCode(10);
+    const text = p.caption + (p.firstComment ? NL + NL + "---- first comment ----" + NL + p.firstComment : "");
     try { await navigator.clipboard.writeText(text); btnFlash(); } catch (e) {}
     return;
   }
