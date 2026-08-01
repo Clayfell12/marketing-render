@@ -3,13 +3,21 @@
 
 import { pipelineHero, schema as pipelineHeroSchema } from "./dt-pipeline-hero.js";
 import { firstToDriver, schema as firstToDriverSchema } from "./dt-first-to-driver.js";
+import { stat, schema as statSchema } from "./dt-stat.js";
+import { quote, schema as quoteSchema } from "./dt-quote.js";
+import { statement, schema as statementSchema } from "./dt-statement.js";
+import { verdict, schema as verdictSchema } from "./dt-verdict.js";
 
 export const templates = {
   "dt-pipeline-hero": pipelineHero,
   "dt-first-to-driver": firstToDriver,
+  "dt-stat": stat,
+  "dt-quote": quote,
+  "dt-statement": statement,
+  "dt-verdict": verdict,
 };
 
-export const schemas = [pipelineHeroSchema, firstToDriverSchema];
+export const schemas = [pipelineHeroSchema, firstToDriverSchema, statSchema, quoteSchema, statementSchema, verdictSchema];
 
 // Defaults are read straight off each template function so the app can prefill
 // the form without duplicating copy in two places.
