@@ -12,6 +12,7 @@ import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
 import { appHtml } from "./app.js";
 import { generateCopy } from "./lib/copy.js";
 import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
+import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -55,6 +56,29 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { ok: true, templates: Object.keys(templates) });
+  }
+
+  // --- Product screenshots ---
+  if (req.url === "/shots" || req.url.startsWith("/shots/")) {
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+    const action = req.url.split("?")[0].split("/").filter(Boolean)[1];
+    try {
+      if (req.method === "GET" && !action) {
+        return send(res, 200, { ok: true, shots: shotCatalogue() });
+      }
+      if (req.method === "POST" && action === "discover") {
+        return send(res, 200, await discover());
+      }
+      if (req.method === "POST" && action === "refresh") {
+        const body = (await readBody(req)) || {};
+        return send(res, 200, await refreshShots(body.only || null));
+      }
+      return send(res, 404, { error: "not found" });
+    } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
   }
 
   // --- Post queue ---------------------------------------------------------

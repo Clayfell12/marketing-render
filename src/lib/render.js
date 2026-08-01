@@ -53,7 +53,7 @@ function getBrowser() {
 }
 
 // Render a full HTML document string to a PNG buffer at deviceScaleFactor for crispness
-export async function renderToPng({ html, width, height, scale = 2 }) {
+export async function renderToPng({ html, width, height, scale = 2, transparent = false }) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
@@ -66,6 +66,7 @@ export async function renderToPng({ html, width, height, scale = 2 }) {
     const buffer = await page.screenshot({
       type: "png",
       clip: { x: 0, y: 0, width, height },
+      omitBackground: transparent,
     });
     return buffer;
   } finally {

@@ -96,6 +96,33 @@ Statuses: `draft`, `approved`, `posted`, `rejected`.
 
 Posts live in R2 under `posts/`, renders under `renders/`.
 
+### Product screenshots
+
+The service signs into the DriverTrack demo tenant with headless Chromium, captures
+each screen in the catalogue, frames it (rounded corners, soft shadow, transparent
+background) and uploads it to R2 under `shots/`. Templates then reference shots by
+name, e.g. `"heroImage": "pipeline"`.
+
+Only the demo tenant is used. Marketing assets must never show real candidate data.
+
+| Method | Route | Does |
+|---|---|---|
+| `GET` | `/shots` | The catalogue: shot names and what each one is good for |
+| `POST` | `/shots/discover` | Signs in and reports the app structure, so the catalogue can be corrected |
+| `POST` | `/shots/refresh` | Captures every shot. Pass `{"only":["pipeline"]}` to do one |
+
+Extra environment variables:
+
+| Var | Notes |
+|---|---|
+| `DT_BASE_URL` | Defaults to `https://www.drivertrack.co` |
+| `DT_DEMO_EMAIL` | Demo tenant login |
+| `DT_DEMO_PASSWORD` | Demo tenant password |
+
+Each shot carries a `description` in `src/lib/capture.js`. That is what makes
+screenshots content-aware: the planner reads the descriptions to pick the shot
+that supports the argument a post is making.
+
 ### `POST /copy`
 ```json
 { "template": "dt-first-to-driver", "brief": "Peak hiring is coming, get in early" }
