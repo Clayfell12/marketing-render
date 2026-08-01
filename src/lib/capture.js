@@ -93,16 +93,39 @@ async function signIn(page, report = []) {
   await page.type(emailSel, email, { delay: 12 });
   await page.type('input[type="password"]', password, { delay: 12 });
 
+  // This form is a React app, so pressing Enter may not submit it. Click the
+  // submit button, and fall back to Enter only if there is no button.
+  const submit = await page.$('button[type="submit"]');
+  report.push(submit ? "submit button found, clicking" : "no submit button, pressing Enter");
+
   await Promise.all([
-    page.keyboard.press("Enter"),
+    submit ? submit.click() : page.keyboard.press("Enter"),
     page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {}),
   ]);
-  await new Promise((r) => setTimeout(r, 2500));
+
+  // Client-side routing may not fire a navigation event, so poll for the
+  // password field disappearing rather than trusting navigation alone.
+  let stillOnLogin = true;
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    stillOnLogin = Boolean(await page.$('input[type="password"]'));
+    if (!stillOnLogin) break;
+  }
 
   const url = page.url();
-  const stillOnLogin = Boolean(await page.$('input[type="password"]'));
-  report.push(`after sign in -> ${url}${stillOnLogin ? " (STILL ON LOGIN, credentials rejected?)" : ""}`);
-  if (stillOnLogin) throw new Error("Sign in did not complete. Check DT_DEMO_EMAIL and DT_DEMO_PASSWORD.");
+  report.push(`after sign in -> ${url}`);
+
+  if (stillOnLogin) {
+    // Surface whatever the page is saying, so the cause is visible rather than guessed
+    const msg = await page.evaluate(() => {
+      const text = document.body.innerText || "";
+      const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+      const err = lines.find((l) => /invalid|incorrect|wrong|failed|error|denied|try again/i.test(l));
+      return err || lines.slice(0, 6).join(" | ");
+    });
+    report.push(`page says: ${msg}`.slice(0, 300));
+    throw new Error("Sign in did not complete. Page reported: " + String(msg).slice(0, 160));
+  }
   return url;
 }
 
