@@ -11,7 +11,7 @@ import { uploadToR2 } from "./lib/r2.js";
 import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
 import { appHtml } from "./app.js";
 import { generateCopy } from "./lib/copy.js";
-import { createPost, listPosts, getPost, updatePost, deletePost } from "./lib/posts.js";
+import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -66,6 +66,9 @@ const server = http.createServer(async (req, res) => {
     const id = parts[1];
 
     try {
+      if (req.method === "POST" && id === "rerender") {
+        return send(res, 200, { ok: true, rerendered: await rerenderAll() });
+      }
       if (req.method === "GET" && !id) {
         return send(res, 200, { ok: true, posts: await listPosts() });
       }

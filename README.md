@@ -70,6 +70,12 @@ Returns `{ ok: true, templates: [...] }`.
 | `POST` | `/posts` | Create. Accepts one object or an array. Renders and stores the image. |
 | `PATCH` | `/posts/:id` | Update. Changing `data` re-renders the image. |
 | `DELETE` | `/posts/:id` | Remove the post and its render |
+| `POST` | `/posts/rerender` | Re-render every post. Use after changing a template or brand tokens. |
+
+Image URLs are derived on read from `R2_PUBLIC_BASE`, not stored on the record,
+so changing the public base fixes every post at once. A `?v=` cache-buster is
+appended from the render timestamp so phones pick up updated images.
+Pass `"force": true` in a PATCH to re-render without changing anything.
 
 Post shape:
 ```json
