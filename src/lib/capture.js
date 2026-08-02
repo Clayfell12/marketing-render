@@ -202,15 +202,15 @@ export async function discover() {
 
 // Frame a raw screenshot: rounded corners and a soft shadow on a transparent
 // background, so it sits on any template ground rather than looking pasted on.
-async function frame(pngBuffer) {
+async function frame(input) {
+  const pngBuffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const b64 = pngBuffer.toString("base64");
   const pad = 60;
-  const { width, height } = await sizeOf(pngBuffer);
+  const raw = sizeOf(pngBuffer);
+  const width = Math.round(raw.width / 2);
+  const height = Math.round(raw.height / 2);
   const w = width + pad * 2;
   const h = height + pad * 2;
-  const html = buildDocument({
-    width: w,
-    height: h,
     css: `
       body{background:transparent;}
       .wrap{width:${w}px;height:${h}px;display:flex;align-items:center;justify-content:center;}
@@ -219,11 +219,12 @@ async function frame(pngBuffer) {
     `,
     bodyHtml: `<div class="wrap"><img src="data:image/png;base64,${b64}"></div>`,
   });
-  return renderToPng({ html, width: w, height: h, scale: 1, transparent: true });
+  return renderToPng({ html, width: w, height: h, scale: 2, transparent: true });
 }
 
 // Read PNG dimensions from the header, no image library needed
-function sizeOf(buf) {
+function sizeOf(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
