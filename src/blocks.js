@@ -136,8 +136,12 @@ export function screenshot(d = {}) {
   const src = /^https?:|^data:/.test(d.name || "") ? d.name : t.shots.url(d.name);
   if (!src) return { css: "", html: "" };
   return {
-    css: `.b-shot{display:flex;justify-content:center;align-items:center;}
-      .b-shot img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;}`,
+    // Fill the available width. The capture is a narrow fragment, so showing it
+    // full width MAGNIFIES it, which is what makes the UI text legible. Showing a
+    // whole dashboard here would shrink it into illegibility.
+    css: `.b-shot{display:flex;justify-content:center;align-items:center;width:100%;}
+      .b-shot img{width:100%;height:auto;max-height:100%;object-fit:contain;
+        border-radius:${t.radius.md}px;}`,
     html: `<div class="b-shot"><img src="${src}"></div>`,
   };
 }
