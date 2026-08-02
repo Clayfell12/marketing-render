@@ -90,8 +90,31 @@ async function signIn(page, report = []) {
     : await page.$('input[name="email"]') ? 'input[name="email"]'
     : 'input[type="text"]';
 
-  await page.type(emailSel, email, { delay: 12 });
-  await page.type('input[type="password"]', password, { delay: 12 });
+  // Click into each field before typing. React controlled inputs sometimes ignore
+  // programmatic typing unless the field has focus first.
+  await page.click(emailSel);
+  await page.type(emailSel, email, { delay: 30 });
+  await page.click('input[type="password"]');
+  await page.type('input[type="password"]', password, { delay: 30 });
+
+  // Confirm the values actually landed in the DOM. If React did not register them
+  // the form will submit empty and fail silently, which looks identical to a bad
+  // password. Reporting the lengths tells the two apart without exposing anything.
+  const filled = await page.evaluate((es) => ({
+    email: (document.querySelector(es)?.value || "").length,
+    password: (document.querySelector('input[type="password"]')?.value || "").length,
+  }), emailSel);
+  report.push(`fields filled -> email ${filled.email} chars, password ${filled.password} chars`);
+  if (!filled.email || !filled.password) {
+    throw new Error("The login fields did not accept input. Email chars: " +
+      filled.email + ", password chars: " + filled.password);
+  }
+
+  // Wait for the submit button to be enabled before clicking
+  await page.waitForFunction(() => {
+    const b = document.querySelector('button[type="submit"]');
+    return b && !b.disabled;
+  }, { timeout: 8000 }).catch(() => report.push("submit button never became enabled"));
 
   // This form is a React app, so pressing Enter may not submit it. Click the
   // submit button, and fall back to Enter only if there is no button.
@@ -124,7 +147,20 @@ async function signIn(page, report = []) {
       return err || lines.slice(0, 6).join(" | ");
     });
     report.push(`page says: ${msg}`.slice(0, 300));
-    throw new Error("Sign in did not complete. Page reported: " + String(msg).slice(0, 160));
+
+    // Upload a screenshot of the failed state so the cause is visible rather than guessed
+    let shotUrl = "";
+    try {
+      const png = await page.screenshot({ type: "png" });
+      shotUrl = await uploadToR2(png, "debug/login-failed.png");
+      report.push("debug screenshot: " + shotUrl);
+    } catch (e) {
+      report.push("could not save debug screenshot: " + e.message.slice(0, 80));
+    }
+
+    const err = new Error("Sign in did not complete. Page reported: " + String(msg).slice(0, 160));
+    err.debug = { report, shotUrl };
+    throw err;
   }
   return url;
 }
