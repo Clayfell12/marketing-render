@@ -110,20 +110,44 @@ export const SHOTS = [
 // The demo tenant shows an onboarding tour. Click it away before capturing.
 async function dismissTour(page, report = []) {
   try {
-    const clicked = await page.evaluate(() => {
-      const starts = ["skip", "dismiss", "close", "got it", "no thanks", "maybe later"];
-      const els = Array.from(document.querySelectorAll("button, a, [role=button]"));
-      for (const el of els) {
-        const txt = (el.textContent || "").trim().toLowerCase();
-        if (!txt || txt.length > 24) continue;
-        if (starts.some((k) => txt.startsWith(k))) { el.click(); return txt; }
-      }
-      return null;
-    });
-    if (clicked) {
-      report.push(`dismissed tour via "${clicked}"`);
-      await new Promise((r) => setTimeout(r, 900));
+    // Click the tour away, then verify it has actually gone. The first attempt
+    // matched a "skip to content" accessibility link rather than the tour, so the
+    // matcher now excludes those and the result is checked rather than assumed.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const clicked = await page.evaluate(() => {
+        const isSkipLink = (t) => t.includes("content") || t.includes("navigation") || t.includes("main");
+        const wanted = ["skip tour", "skip", "dismiss", "close", "got it", "no thanks", "maybe later"];
+        const els = Array.from(document.querySelectorAll("button, a, [role=button]"));
+        for (const el of els) {
+          const txt = (el.textContent || "").trim().toLowerCase();
+          if (!txt || txt.length > 24 || isSkipLink(txt)) continue;
+          if (wanted.some((k) => txt === k || txt.startsWith(k + " "))) {
+            el.click();
+            return txt;
+          }
+        }
+        return null;
+      });
+      if (clicked) report.push(`dismissed via "${clicked}"`);
+      await new Promise((r) => setTimeout(r, 800));
+
+      // Has the tour actually gone?
+      const stillThere = await page.evaluate(() =>
+        document.body.innerText.toLowerCase().includes("welcome to drivertrack"));
+      if (!stillThere) break;
+      if (attempt === 2) report.push("tour still visible after 3 attempts");
     }
+
+    // Belt and braces: hide any tour overlay that survived the clicking
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll("div, section, aside"));
+      for (const el of els) {
+        const txt = (el.innerText || "").toLowerCase();
+        if (txt.includes("welcome to drivertrack") && txt.length < 400) {
+          el.style.display = "none";
+        }
+      }
+    });
   } catch (e) {
     report.push("tour dismiss failed: " + e.message.slice(0, 60));
   }
