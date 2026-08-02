@@ -31,6 +31,7 @@ export const SHOTS = [
   },
   {
     name: "pipeline",
+
     path: "/pipeline",
     description:
       "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost columns. " +
@@ -102,6 +103,27 @@ export const SHOTS = [
     wait: 2000,
   },
 ];
+
+// The demo tenant shows an onboarding tour. Click it away before capturing.
+async function dismissTour(page, report = []) {
+  try {
+    const clicked = await page.evaluate(() => {
+      const wanted = ["skip tour", "skip", "dismiss", "close", "got it", "no thanks"];
+      const els = Array.from(document.querySelectorAll("button, a, [role=button]"));
+      for (const el of els) {
+        const txt = (el.textContent || "").trim().toLowerCase();
+        if (wanted.includes(txt)) { el.click(); return txt; }
+      }
+      return null;
+    });
+    if (clicked) {
+      report.push(`dismissed tour via "${clicked}"`);
+      await new Promise((r) => setTimeout(r, 900));
+    }
+  } catch (e) {
+    report.push("tour dismiss failed: " + e.message.slice(0, 60));
+  }
+}
 
 async function launch() {
   return puppeteer.launch({
@@ -188,6 +210,9 @@ async function signIn(page, report = []) {
   const url = page.url();
   report.push(`after sign in -> ${url}`);
 
+  // Dismiss the onboarding tour, or it appears in every screenshot
+  await dismissTour(page, report);
+
   if (stillOnLogin) {
     // Surface whatever the page is saying, so the cause is visible rather than guessed
     const msg = await page.evaluate(() => {
@@ -241,6 +266,34 @@ export async function discover() {
       };
     });
 
+    // Report candidate fragment selectors on each page, so the catalogue can target
+    // a legible piece of UI rather than a whole dashboard.
+    const fragments = [];
+    for (const shot of SHOTS.slice(0, 6)) {
+      try {
+        await page.goto(BASE() + shot.path, { waitUntil: "networkidle2", timeout: 20000 });
+        await new Promise((r) => setTimeout(r, 1500));
+        await dismissTour(page);
+        const cands = await page.evaluate(() => {
+          const out = [];
+          document.querySelectorAll("div, section, article, li").forEach((el) => {
+            const r = el.getBoundingClientRect();
+            // a good fragment is roughly card sized: readable when magnified
+            if (r.width > 220 && r.width < 620 && r.height > 90 && r.height < 460) {
+              const cls = (el.className || "").toString().split(/\s+/).slice(0, 3).join(".");
+              out.push({ w: Math.round(r.width), h: Math.round(r.height),
+                sel: el.tagName.toLowerCase() + (cls ? "." + cls : ""),
+                text: (el.innerText || "").trim().slice(0, 48).replace(/\n/g, " ") });
+            }
+          });
+          return out.slice(0, 8);
+        });
+        fragments.push({ page: shot.name, candidates: cands });
+      } catch (e) {
+        fragments.push({ page: shot.name, error: e.message.slice(0, 60) });
+      }
+    }
+
     // Probe each catalogue path so we learn which ones are real
     const probes = [];
     for (const shot of SHOTS) {
@@ -254,7 +307,7 @@ export async function discover() {
       }
     }
 
-    return { ok: true, landedOn: landed, nav, probes, report };
+    return { ok: true, landedOn: landed, nav, fragments, probes, report };
   } finally {
     await browser.close();
   }
@@ -301,7 +354,7 @@ export async function refreshShots(only = null) {
   const report = [];
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 2 });
+    await page.setViewport({ width: 1100, height: 900, deviceScaleFactor: 3 });
     await signIn(page, report);
 
     const list = only ? SHOTS.filter((s) => only.includes(s.name)) : SHOTS;
@@ -310,8 +363,21 @@ export async function refreshShots(only = null) {
       try {
         await page.goto(BASE() + shot.path, { waitUntil: "networkidle2", timeout: 30000 });
         await new Promise((r) => setTimeout(r, shot.wait || 2000));
+        await dismissTour(page);
 
-        const raw = Buffer.from(await page.screenshot({ type: "png" }));
+        // A fragment, not a whole dashboard. A full page shrunk into a graphic is
+        // illegible: UI text at 14px displayed at 0.3x renders at about 4px. Capturing
+        // a narrow element instead means it is MAGNIFIED when shown, not shrunk.
+        let target = null;
+        if (shot.selector) {
+          target = await page.$(shot.selector);
+          if (!target) report.push(`${shot.name}: selector not found, fell back to full page`);
+        }
+        const raw = Buffer.from(
+          target
+            ? await target.screenshot({ type: "png" })
+            : await page.screenshot({ type: "png" })
+        );
         const framed = await frame(raw);
         const url = await uploadToR2(framed, `shots/${shot.name}.png`);
         results.push({ name: shot.name, ok: true, url, bytes: framed.length });
