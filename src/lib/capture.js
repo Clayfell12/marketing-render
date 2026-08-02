@@ -21,26 +21,86 @@ const BASE = () => (process.env.DT_BASE_URL || "https://www.drivertrack.co").rep
 // The catalogue. `description` is what makes screenshots content-aware: the post
 // planner reads these to decide which shot supports the argument being made.
 export const SHOTS = [
-  { name: "dashboard", path: "/dashboard", wait: 2500,
-    description: "The morning dashboard. New replies, today's interviews, callbacks due. Use for posts about waking up to a pipeline or the state of play at a glance." },
-  { name: "pipeline", path: "/pipeline", wait: 2500,
-    description: "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost. Use for posts about visibility, sorting, or a pipeline rather than a pile of CVs." },
-  { name: "call-queue", path: "/call-queue", wait: 2000,
-    description: "The call queue: who is waiting to be contacted. Use for posts about speed to first contact or the Monday morning scramble." },
-  { name: "inbox", path: "/inbox", wait: 2000,
-    description: "Candidate replies including SMS threads. Use for posts about call or text screening, or applicants who will not answer an unknown number." },
-  { name: "interviews", path: "/interviews", wait: 2000,
-    description: "Booked interviews. Use for posts about automatic booking or turning an applicant into a diary entry." },
-  { name: "candidates", path: "/candidates", wait: 2000,
-    description: "The candidate list across sources. Use for posts about volume or where applicants come from." },
-  { name: "onboarding", path: "/onboarding", wait: 2000,
-    description: "Getting a passed candidate to their first day on road. Use for posts about drop-out between offer and start." },
-  { name: "killer-questions", path: "/killer-questions", wait: 2000,
-    description: "The screening questions and pass thresholds a DSP sets per role. Use for posts about control or the rules behind a decision." },
-  { name: "reports", path: "/reports", wait: 2000,
-    description: "Reporting on hiring performance. Use for posts about measurement or proving what changed." },
-  { name: "jobs", path: "/jobs", wait: 2000,
-    description: "Live job adverts across stations. Use for posts about keeping adverts live out of season." },
+  {
+    name: "dashboard",
+    path: "/dashboard",
+    description:
+      "The morning dashboard. New replies, today's interviews, callbacks due. Use for posts about " +
+      "waking up to a pipeline, starting the day already sorted, or the state of play at a glance.",
+    wait: 2500,
+  },
+  {
+    name: "pipeline",
+    path: "/pipeline",
+    description:
+      "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost columns. " +
+      "Use for posts about visibility, sorting, or having a pipeline rather than a pile of CVs.",
+    wait: 2500,
+  },
+  {
+    name: "call-queue",
+    path: "/call-queue",
+    description:
+      "The call queue: who is waiting to be contacted. Use for posts about speed to first contact, " +
+      "the Monday morning scramble, or working through a weekend's applications.",
+    wait: 2000,
+  },
+  {
+    name: "inbox",
+    path: "/inbox",
+    description:
+      "The inbox of candidate replies, including SMS threads. Use for posts about call or text " +
+      "screening, applicants who will not answer an unknown number, or replies arriving overnight.",
+    wait: 2000,
+  },
+  {
+    name: "interviews",
+    path: "/interviews",
+    description:
+      "Booked interviews. Use for posts about automatic booking, or turning an applicant into a " +
+      "diary entry without anyone picking up the phone.",
+    wait: 2000,
+  },
+  {
+    name: "candidates",
+    path: "/candidates",
+    description:
+      "The candidate list across sources. Use for posts about volume, where applicants come from, " +
+      "or managing a lot of people at once.",
+    wait: 2000,
+  },
+  {
+    name: "onboarding",
+    path: "/onboarding",
+    description:
+      "Onboarding progress: getting a passed candidate to their first day on road. Use for posts " +
+      "about drop-out between offer and start, or compliance before someone drives.",
+    wait: 2000,
+  },
+  {
+    name: "killer-questions",
+    path: "/killer-questions",
+    description:
+      "The screening questions and pass thresholds a DSP sets per role. Use for posts about " +
+      "control, tailoring screening, or the rules behind a decision.",
+    wait: 2000,
+  },
+  {
+    name: "reports",
+    path: "/reports",
+    description:
+      "Reporting on hiring performance. Use for posts about measurement, time to hire, or " +
+      "proving what changed.",
+    wait: 2000,
+  },
+  {
+    name: "jobs",
+    path: "/jobs",
+    description:
+      "Live job adverts across stations. Use for posts about keeping adverts live out of season " +
+      "or hiring across multiple stations.",
+    wait: 2000,
+  },
 ];
 
 async function launch() {
@@ -141,7 +201,7 @@ async function signIn(page, report = []) {
     // Upload a screenshot of the failed state so the cause is visible rather than guessed
     let shotUrl = "";
     try {
-      const png = await page.screenshot({ type: "png" });
+      const png = Buffer.from(await page.screenshot({ type: "png" }));
       shotUrl = await uploadToR2(png, "debug/login-failed.png");
       report.push("debug screenshot: " + shotUrl);
     } catch (e) {
@@ -203,14 +263,21 @@ export async function discover() {
 // Frame a raw screenshot: rounded corners and a soft shadow on a transparent
 // background, so it sits on any template ground rather than looking pasted on.
 async function frame(input) {
+  // Newer Puppeteer returns a Uint8Array, older returns a Buffer. Normalise.
   const pngBuffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const b64 = pngBuffer.toString("base64");
   const pad = 60;
+  // Screenshots are captured at deviceScaleFactor 2, so the PNG header reports
+  // double the CSS size. Lay out at CSS size and render the frame at 2x, which
+  // keeps the output sharp without doubling the frame dimensions too.
   const raw = sizeOf(pngBuffer);
   const width = Math.round(raw.width / 2);
   const height = Math.round(raw.height / 2);
   const w = width + pad * 2;
   const h = height + pad * 2;
+  const html = buildDocument({
+    width: w,
+    height: h,
     css: `
       body{background:transparent;}
       .wrap{width:${w}px;height:${h}px;display:flex;align-items:center;justify-content:center;}
@@ -244,7 +311,7 @@ export async function refreshShots(only = null) {
         await page.goto(BASE() + shot.path, { waitUntil: "networkidle2", timeout: 30000 });
         await new Promise((r) => setTimeout(r, shot.wait || 2000));
 
-        const raw = await page.screenshot({ type: "png" });
+        const raw = Buffer.from(await page.screenshot({ type: "png" }));
         const framed = await frame(raw);
         const url = await uploadToR2(framed, `shots/${shot.name}.png`);
         results.push({ name: shot.name, ok: true, url, bytes: framed.length });
