@@ -92,7 +92,10 @@ RULES
 - Match the length shown. Longer copy breaks the layout.
 - The caption is the LinkedIn post itself: 120 to 250 words, short paragraphs, a hook
   in the first line that survives truncation, no hashtags, no emoji unless asked.
-- firstComment holds the link and one genuine question to invite replies.
+- firstComment is TWO separate lines with a blank line between them. First line: the
+  link on its own with a short lead in, e.g. "More at drivertrack.co". Second line: one
+  genuine open question to the reader, written as a proper sentence ending in a question
+  mark. Never run the link and the question together into one sentence.
 - altText describes the graphic for a screen reader in one or two sentences.
 - note explains in one sentence why this angle was chosen. It is for the human reviewing.
 
