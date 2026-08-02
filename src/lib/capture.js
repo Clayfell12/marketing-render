@@ -24,6 +24,8 @@ export const SHOTS = [
   {
     name: "dashboard",
     path: "/dashboard",
+    selector: "section.card.p-5",
+    maxHeight: 220,
     description:
       "The morning dashboard. New replies, today's interviews, callbacks due. Use for posts about " +
       "waking up to a pipeline, starting the day already sorted, or the state of play at a glance.",
@@ -31,8 +33,8 @@ export const SHOTS = [
   },
   {
     name: "pipeline",
-
     path: "/pipeline",
+    selector: "div.card.hover-lift.group",
     description:
       "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost columns. " +
       "Use for posts about visibility, sorting, or having a pipeline rather than a pile of CVs.",
@@ -41,6 +43,7 @@ export const SHOTS = [
   {
     name: "call-queue",
     path: "/call-queue",
+    selector: "div.mt-4.rounded-lg.border",
     description:
       "The call queue: who is waiting to be contacted. Use for posts about speed to first contact, " +
       "the Monday morning scramble, or working through a weekend's applications.",
@@ -108,11 +111,12 @@ export const SHOTS = [
 async function dismissTour(page, report = []) {
   try {
     const clicked = await page.evaluate(() => {
-      const wanted = ["skip tour", "skip", "dismiss", "close", "got it", "no thanks"];
+      const starts = ["skip", "dismiss", "close", "got it", "no thanks", "maybe later"];
       const els = Array.from(document.querySelectorAll("button, a, [role=button]"));
       for (const el of els) {
         const txt = (el.textContent || "").trim().toLowerCase();
-        if (wanted.includes(txt)) { el.click(); return txt; }
+        if (!txt || txt.length > 24) continue;
+        if (starts.some((k) => txt.startsWith(k))) { el.click(); return txt; }
       }
       return null;
     });
