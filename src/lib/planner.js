@@ -25,8 +25,10 @@ function templateBrief(schema) {
     .filter((f) => f.type !== "url")
     .map((f) => {
       const eg = defaults[f.name];
+      const words = eg ? String(eg).trim().split(/\s+/).length : null;
       return `    - ${f.name}${f.optional ? " (optional)" : ""}` +
-        (eg ? `\n      length guide: ${JSON.stringify(String(eg).slice(0, 180))}` : "");
+        (words ? `\n      write roughly ${words} words. Existing wording, for length only,` +
+                 ` DO NOT reuse it: ${JSON.stringify(String(eg).slice(0, 140))}` : "");
     })
     .join("\n");
   const hero = schema.fields.some((f) => f.name === "heroImage");
@@ -61,6 +63,10 @@ ${v.doThis.map((x) => `- ${x}`).join("\n")}
 AVOID
 ${v.avoid.map((x) => `- ${x}`).join("\n")}
 
+FIXED FACTS (use these exactly, never invent a variation)
+- The website is ${b.links ? b.links.site : "drivertrack.co"}. There is no other domain,
+  no .co.uk, and no /demo path. If you reference a link, write it exactly as given.
+
 TEMPLATES AVAILABLE
 ${mine.map(templateBrief).join("\n\n")}
 
@@ -80,7 +86,10 @@ RULES
 - Never invent a statistic, result, customer name or quote. If the brief supplies no
   proof, argue from reasoning and operational experience instead. Do not use the stat
   or quote templates unless the brief gives you a real figure or a real quote.
-- Copy on the image must match the length guides. Longer copy breaks the layout.
+- Copy on the image must be WRITTEN FRESH for this post. The existing wording shown
+  under each field is there to show you the right length only. Reusing it, or lightly
+  rewording it, is a failure. Every field should say something specific to this angle.
+- Match the length shown. Longer copy breaks the layout.
 - The caption is the LinkedIn post itself: 120 to 250 words, short paragraphs, a hook
   in the first line that survives truncation, no hashtags, no emoji unless asked.
 - firstComment holds the link and one genuine question to invite replies.
