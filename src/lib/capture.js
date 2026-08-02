@@ -21,36 +21,26 @@ const BASE = () => (process.env.DT_BASE_URL || "https://www.drivertrack.co").rep
 // The catalogue. `description` is what makes screenshots content-aware: the post
 // planner reads these to decide which shot supports the argument being made.
 export const SHOTS = [
-  {
-    name: "pipeline",
-    path: "/app/pipeline",
-    description:
-      "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost columns. " +
-      "Use for posts about visibility, sorting, or having a pipeline rather than a list.",
-    wait: 2500,
-  },
-  {
-    name: "call-queue",
-    path: "/app/calls",
-    description:
-      "The call queue. Who is waiting to be contacted. Use for posts about speed to contact or " +
-      "the Monday morning scramble.",
-    wait: 2000,
-  },
-  {
-    name: "interviews",
-    path: "/app/interviews",
-    description:
-      "Booked interviews. Use for posts about automatic booking or turning applicants into diary entries.",
-    wait: 2000,
-  },
-  {
-    name: "candidates",
-    path: "/app/candidates",
-    description:
-      "The candidate list. Use for posts about volume, sources, or managing applicants at scale.",
-    wait: 2000,
-  },
+  { name: "dashboard", path: "/dashboard", wait: 2500,
+    description: "The morning dashboard. New replies, today's interviews, callbacks due. Use for posts about waking up to a pipeline or the state of play at a glance." },
+  { name: "pipeline", path: "/pipeline", wait: 2500,
+    description: "The pipeline board. Applicants sorted into To call, Interview, Onboarding and Lost. Use for posts about visibility, sorting, or a pipeline rather than a pile of CVs." },
+  { name: "call-queue", path: "/call-queue", wait: 2000,
+    description: "The call queue: who is waiting to be contacted. Use for posts about speed to first contact or the Monday morning scramble." },
+  { name: "inbox", path: "/inbox", wait: 2000,
+    description: "Candidate replies including SMS threads. Use for posts about call or text screening, or applicants who will not answer an unknown number." },
+  { name: "interviews", path: "/interviews", wait: 2000,
+    description: "Booked interviews. Use for posts about automatic booking or turning an applicant into a diary entry." },
+  { name: "candidates", path: "/candidates", wait: 2000,
+    description: "The candidate list across sources. Use for posts about volume or where applicants come from." },
+  { name: "onboarding", path: "/onboarding", wait: 2000,
+    description: "Getting a passed candidate to their first day on road. Use for posts about drop-out between offer and start." },
+  { name: "killer-questions", path: "/killer-questions", wait: 2000,
+    description: "The screening questions and pass thresholds a DSP sets per role. Use for posts about control or the rules behind a decision." },
+  { name: "reports", path: "/reports", wait: 2000,
+    description: "Reporting on hiring performance. Use for posts about measurement or proving what changed." },
+  { name: "jobs", path: "/jobs", wait: 2000,
+    description: "Live job adverts across stations. Use for posts about keeping adverts live out of season." },
 ];
 
 async function launch() {
