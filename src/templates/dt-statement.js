@@ -63,6 +63,8 @@ export const schema = {
   brand: "drivertrack",
   label: "Statement card",
   blurb: "A single take, set large. The workhorse for quick posts.",
+  useWhen:
+    "Use for an opinion, observation or piece of advice with no product in it. The workhorse for posts that build trust rather than sell.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text", optional: true },

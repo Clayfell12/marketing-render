@@ -1,53 +1,37 @@
 // The planner.
-// Takes a brief ("a week of content", "something about peak hiring") and returns
-// complete posts: template chosen, every field written, screenshot selected,
-// caption, first comment, alt text, and a note on why that angle.
+// Takes a brief and returns complete posts. It does not pick a template, because
+// there are no templates any more. It composes: it decides what the headline is,
+// which blocks the argument needs, and what goes in them. The shell (ground, logo,
+// eyebrow with the fluent device, headline treatment) is locked and not its business.
 //
-// What makes it content-aware rather than a template filler:
-//   - Each template carries a `useWhen` line, so the model picks by job not by name.
-//   - Each screenshot carries a description, so the image supports the argument.
-//   - The existing queue is shown to it, so it does not repeat angles or templates.
-//   - Each field's current default is shown as a worked example of correct length,
-//     which keeps copy inside the layout without maintaining character limits.
+// See DESIGN-SPEC.md. The constraints below are from evidence, not taste:
+//   - one idea per graphic, because a feed post gets 1 to 2 seconds of attention
+//   - two blocks maximum, three only with a cta, same reason
+//   - copy budgets, because the type size is fixed by legibility and cannot shrink
 
 import { drivertrack } from "../tokens/drivertrack.js";
 import { revive } from "../tokens/revive.js";
-import { schemas, defaultsFor } from "../templates/index.js";
+import { BLOCK_CATALOGUE } from "../blocks.js";
 import { shotCatalogue } from "./capture.js";
 import { listPosts, createPost } from "./posts.js";
 
 const BRANDS = { drivertrack, revive };
 const MODEL = process.env.COPY_MODEL || "claude-sonnet-5";
 
-function templateBrief(schema) {
-  const defaults = defaultsFor(schema.key);
-  const fields = schema.fields
-    .filter((f) => f.type !== "url")
-    .map((f) => {
-      const eg = defaults[f.name];
-      const words = eg ? String(eg).trim().split(/\s+/).length : null;
-      return `    - ${f.name}${f.optional ? " (optional)" : ""}` +
-        (words ? `\n      write roughly ${words} words. Existing wording, for length only,` +
-                 ` DO NOT reuse it: ${JSON.stringify(String(eg).slice(0, 140))}` : "");
-    })
-    .join("\n");
-  const hero = schema.fields.some((f) => f.name === "heroImage");
-  return `  ${schema.key} — ${schema.label}
-    ${schema.useWhen || schema.blurb}
-    fields:
-${fields}${hero ? "\n    - heroImage: pick a screenshot name from the list below" : ""}`;
-}
-
 function buildPrompt({ brand, brief, count, recent }) {
   const b = BRANDS[brand];
   const v = b.voice;
-  const mine = schemas.filter((s) => s.brand === brand);
+  const bud = b.budget;
 
-  const recentLines = recent.length
-    ? recent.map((p) => `  - ${p.template}: ${(p.note || p.caption || "").slice(0, 120)}`).join("\n")
-    : "  (nothing yet)";
+  const blocks = BLOCK_CATALOGUE
+    .map((x) => `  "${x.name}"\n    ${x.useWhen}\n    shape: ${x.shape}`)
+    .join("\n\n");
 
   const shots = shotCatalogue().map((s) => `  - ${s.name}: ${s.description}`).join("\n");
+
+  const recentLines = recent.length
+    ? recent.map((p) => `  - ${(p.note || p.caption || "").slice(0, 110)}`).join("\n")
+    : "  (nothing yet)";
 
   return `You are the creative lead for ${b.name}. Plan ${count} LinkedIn post${count > 1 ? "s" : ""}.
 
@@ -63,52 +47,66 @@ ${v.doThis.map((x) => `- ${x}`).join("\n")}
 AVOID
 ${v.avoid.map((x) => `- ${x}`).join("\n")}
 
-FIXED FACTS (use these exactly, never invent a variation)
-- The website is ${b.links ? b.links.site : "drivertrack.co"}. There is no other domain,
-  no .co.uk, and no /demo path. If you reference a link, write it exactly as given.
+FIXED FACTS (use exactly, never invent a variation)
+- The website is ${b.links ? b.links.site : "drivertrack.co"}. No .co.uk, no /demo path.
 
-TEMPLATES AVAILABLE
-${mine.map(templateBrief).join("\n\n")}
+HOW A GRAPHIC IS BUILT
+Every graphic has the same locked shell: brand ground, logo, an eyebrow with a blue
+diamond, and a headline. You write the eyebrow and the headline. You then choose the
+blocks that sit underneath. You do not choose a template or a layout.
 
-PRODUCT SCREENSHOTS AVAILABLE
+BLOCKS AVAILABLE
+${blocks}
+
+PRODUCT SCREENSHOTS (for the screenshot block)
 ${shots}
 
-ALREADY IN THE QUEUE (do not repeat these angles, and vary the templates used)
+ALREADY IN THE QUEUE (do not repeat these angles)
 ${recentLines}
 
 THE BRIEF
 ${brief}
 
-RULES
-- One single-minded point per post. If an angle contains two ideas, split or drop one.
-- Choose the template that fits the ARGUMENT, not the one that looks nice.
-- Vary the templates across the set. Do not use the same one twice unless the brief demands it.
+HARD CONSTRAINTS
+- ONE idea per graphic. A feed post gets one to two seconds of attention. Two ideas
+  means two posts. This is not a style preference.
+- TWO blocks maximum. Three only if one of them is a cta.
+- Copy budgets, because type size is fixed by legibility and cannot shrink to fit:
+    eyebrow    2 to 4 words, no punctuation
+    headline   ${bud.headline} words maximum
+    body       ${bud.body} words maximum
+    row name   3 words maximum, it truncates if longer
+    row detail ${bud.small} words maximum
+    column title 3 words maximum
+    column text ${bud.small} words maximum
+    point      8 words maximum each
 - Never invent a statistic, result, customer name or quote. If the brief supplies no
-  proof, argue from reasoning and operational experience instead. Do not use the stat
-  or quote templates unless the brief gives you a real figure or a real quote.
-- Copy on the image must be WRITTEN FRESH for this post. The existing wording shown
-  under each field is there to show you the right length only. Reusing it, or lightly
-  rewording it, is a failure. Every field should say something specific to this angle.
-- Match the length shown. Longer copy breaks the layout.
-- The caption is the LinkedIn post itself: 120 to 250 words, short paragraphs, a hook
-  in the first line that survives truncation, no hashtags, no emoji unless asked.
-- firstComment is TWO separate lines with a blank line between them. First line: the
-  link on its own with a short lead in, e.g. "More at drivertrack.co". Second line: one
-  genuine open question to the reader, written as a proper sentence ending in a question
-  mark. Never run the link and the question together into one sentence.
+  proof, argue from reasoning. Do NOT use the "stat" block without a real figure or
+  the "quote" block without a real quote.
+- Use "display": true for a pure statement post: the headline runs large and centred
+  and carries no blocks. Use it when the post is an opinion rather than a demonstration.
+- Choose blocks for the argument, never for variety.
+
+WRITING
+- caption is the LinkedIn post: 120 to 250 words, short paragraphs, a hook in the first
+  line that survives truncation, no hashtags, no emoji unless the brief asks.
+- firstComment is TWO lines separated by a blank line. First: a short lead in plus the
+  link. Second: one open question ending in a question mark. Never run them together.
 - altText describes the graphic for a screen reader in one or two sentences.
-- note explains in one sentence why this angle was chosen. It is for the human reviewing.
+- note is one sentence on why this angle, for the human reviewing.
 
 Return ONLY a JSON array of ${count} objects, no markdown fences, no commentary:
 [
   {
-    "template": "one of the template keys above",
+    "eyebrow": "Peak hiring",
+    "headline": "the main line",
+    "display": false,
+    "blocks": [ { "type": "body", "text": "..." } ],
     "scheduledFor": "Monday",
     "note": "why this angle",
-    "data": { every field for that template, including heroImage if it has one },
     "caption": "the LinkedIn post",
-    "firstComment": "link plus a question",
-    "altText": "description of the image"
+    "firstComment": "link line\\n\\nquestion line",
+    "altText": "description of the graphic"
   }
 ]`;
 }
@@ -143,7 +141,7 @@ export async function planPosts({ brand = "drivertrack", brief, count = 3, creat
 
   const json = await res.json();
   const text = (json.content || [])
-    .filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
+    .filter((x) => x.type === "text").map((x) => x.text).join("\n").trim();
 
   const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   let plans;
@@ -156,39 +154,50 @@ export async function planPosts({ brand = "drivertrack", brief, count = 3, creat
   }
   if (!Array.isArray(plans)) plans = [plans];
 
-  // Validate against what actually exists, so a hallucinated template or shot
-  // never reaches the render engine.
-  const validTemplates = new Set(schemas.filter((s) => s.brand === brand).map((s) => s.key));
+  const validBlocks = new Set(BLOCK_CATALOGUE.map((x) => x.name));
   const validShots = new Set(shotCatalogue().map((s) => s.name));
+  const dashes = (x) => String(x || "").replace(/\s*[\u2013\u2014]\s*/g, ", ").trim();
 
   const clean = [];
   const warnings = [];
+
   for (const p of plans) {
-    if (!validTemplates.has(p.template)) {
-      warnings.push(`dropped a post using unknown template '${p.template}'`);
-      continue;
-    }
-    const schema = schemas.find((s) => s.key === p.template);
-    const allowed = new Set(schema.fields.map((f) => f.name));
-    const data = {};
-    for (const [k, val] of Object.entries(p.data || {})) {
-      if (!allowed.has(k) || typeof val !== "string") continue;
-      let value = val.replace(/\s*[\u2013\u2014]\s*/g, ", ").trim();
-      if (k === "heroImage" && value && !validShots.has(value) && !/^https?:/.test(value)) {
-        warnings.push(`unknown screenshot '${value}', left the hero zone empty`);
-        continue;
+    // Validate blocks against what exists, so nothing invented reaches the renderer
+    let blocks = Array.isArray(p.blocks) ? p.blocks : [];
+    blocks = blocks.filter((bl) => {
+      if (!bl || !validBlocks.has(bl.type)) {
+        if (bl) warnings.push(`dropped unknown block '${bl.type}'`);
+        return false;
       }
-      data[k] = value;
-    }
+      if (bl.type === "screenshot") {
+        const n = bl.name || "";
+        if (!validShots.has(n) && !/^https?:/.test(n)) {
+          warnings.push(`dropped screenshot '${n}', not in the catalogue`);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Enforce the block limit here as well as in the composer
+    const ctas = blocks.filter((x) => x.type === "cta").slice(0, 1);
+    const rest = blocks.filter((x) => x.type !== "cta").slice(0, 2);
+    blocks = [...rest, ...ctas];
+
+    if (!p.headline) { warnings.push("dropped a post with no headline"); continue; }
+
     clean.push({
       brand,
-      template: p.template,
-      format: "square",
-      data,
-      caption: String(p.caption || "").replace(/\s*[\u2013\u2014]\s*/g, ", "),
+      spec: {
+        eyebrow: dashes(p.eyebrow),
+        headline: dashes(p.headline),
+        display: Boolean(p.display),
+        blocks,
+      },
+      caption: dashes(p.caption),
       firstComment: String(p.firstComment || ""),
       altText: String(p.altText || ""),
-      note: String(p.note || ""),
+      note: dashes(p.note),
       scheduledFor: String(p.scheduledFor || ""),
     });
   }

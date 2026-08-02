@@ -143,6 +143,8 @@ export const schema = {
   brand: "drivertrack",
   label: "First to the driver",
   blurb: "Speed to contact: one applicant, four DSPs, who replied first.",
+  useWhen:
+    "Use when the post is about competition and speed: several DSPs chasing the same applicant, who replies first, the Monday scramble. Shows a race of response times.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text" },

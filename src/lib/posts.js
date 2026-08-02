@@ -13,6 +13,7 @@
 import { putJson, getJson, deleteKey, listKeys, uploadToR2 } from "./r2.js";
 import { renderToPng } from "./render.js";
 import { templates } from "../templates/index.js";
+import { compose } from "../compose.js";
 
 const PREFIX = "posts/";
 const RENDER_PREFIX = "renders/";
@@ -47,9 +48,16 @@ function present(post) {
 
 // Render the template and push the PNG to R2 at the post's deterministic key.
 async function renderAndStore(post) {
-  const fn = templates[post.template];
-  if (!fn) throw new Error(`unknown template '${post.template}'`);
-  const r = fn({ format: post.format || "square", ...(post.data || {}) });
+  // New posts carry a composed spec. Older ones carry a template name and data,
+  // and still render so an existing queue does not break.
+  let r;
+  if (post.spec) {
+    r = compose(post.spec);
+  } else {
+    const fn = templates[post.template];
+    if (!fn) throw new Error(`unknown template '${post.template}'`);
+    r = fn({ format: post.format || "square", ...(post.data || {}) });
+  }
   const png = await renderToPng({ html: r.html, width: r.width, height: r.height, scale: 2 });
   await uploadToR2(png, `${RENDER_PREFIX}${post.id}.png`);
   post.hasRender = true;
@@ -60,6 +68,7 @@ async function renderAndStore(post) {
 export async function createPost(input) {
   const {
     brand = "drivertrack",
+    spec = null,
     template,
     format = "square",
     data = {},
@@ -72,13 +81,13 @@ export async function createPost(input) {
     skipRender = false,
   } = input;
 
-  if (!template) throw new Error("template is required");
-  if (!templates[template]) throw new Error(`unknown template '${template}'`);
+  if (!spec && !template) throw new Error("a spec (or a legacy template) is required");
+  if (!spec && !templates[template]) throw new Error(`unknown template '${template}'`);
 
   const now = new Date().toISOString();
   const post = {
     id: newId(),
-    brand, template, format, data,
+    brand, spec, template, format, data,
     caption, firstComment, altText, note, scheduledFor,
     status: STATUSES.includes(status) ? status : "draft",
     hasRender: false,
@@ -118,6 +127,8 @@ export async function updatePost(id, patch = {}) {
 
   const { force, imageUrl, hasRender, renderedAt, ...safe } = patch; // never patched directly
 
+  const specChanged =
+    safe.spec && JSON.stringify(safe.spec) !== JSON.stringify(post.spec);
   const dataChanged =
     safe.data && JSON.stringify(safe.data) !== JSON.stringify(post.data);
   const templateChanged = safe.template && safe.template !== post.template;
@@ -126,7 +137,7 @@ export async function updatePost(id, patch = {}) {
   Object.assign(post, safe, { id: post.id, updatedAt: new Date().toISOString() });
 
   // Anything that changes what the image looks like means the image is stale.
-  if (force || dataChanged || templateChanged || formatChanged || !post.hasRender) {
+  if (force || specChanged || dataChanged || templateChanged || formatChanged || !post.hasRender) {
     await renderAndStore(post);
   }
 

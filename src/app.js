@@ -124,6 +124,12 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
   .write:disabled{opacity:.45;}
   .write .spin{border-color:rgba(37,99,235,.3);border-top-color:var(--accent);}
 
+  .row2{display:flex;gap:10px;}
+  .fieldsm{flex:0 0 130px;display:flex;flex-direction:column;gap:7px;}
+  .fieldsm label{font-size:13px;font-weight:600;color:var(--ink-muted);padding-left:2px;}
+  select{width:100%;background:var(--panel);border:1px solid var(--hairline);border-radius:12px;
+    padding:14px;color:var(--ink);font-size:16px;font-family:inherit;}
+
   /* action bar */
   .bar{position:fixed;left:0;right:0;bottom:0;z-index:30;
     background:linear-gradient(180deg,rgba(18,22,29,0) 0%,rgba(18,22,29,.94) 34%);
@@ -176,19 +182,17 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
   </div>
 
   <div class="group">
-    <div class="glabel">Template</div>
-    <div class="tpl" id="tpls"></div>
-  </div>
-
-  <div class="group" id="briefGroup">
     <div class="glabel">Brief</div>
-    <textarea id="brief" rows="3" placeholder="What is this post about? A rough note is enough."></textarea>
-    <button class="write" id="write">Write the copy</button>
-  </div>
-
-  <div class="group" id="formGroup">
-    <div class="glabel">Content</div>
-    <div id="form"></div>
+    <textarea id="brief" rows="5" placeholder="What do you want posting about? A rough note is enough. Say how many posts if you want more than one."></textarea>
+    <div class="row2">
+      <div class="fieldsm">
+        <label>How many</label>
+        <select id="count">
+          <option>1</option><option selected>2</option><option>3</option>
+          <option>4</option><option>5</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <div id="err"></div>
@@ -199,7 +203,7 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
 </main>
 
 <div class="bar">
-  <button class="go" id="go">Render</button>
+  <button class="go" id="go">Plan the posts</button>
 </div>
 
 <div class="sheet" id="sheet">
@@ -215,171 +219,72 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
 <script>
 const APP = ${data};
 const $ = (s) => document.querySelector(s);
-let state = { brand: "drivertrack", tpl: null, values: {}, blob: null, busy: false };
+let state = { brand: "drivertrack", busy: false };
 let KEY = localStorage.getItem("studio_key") || "";
 
 function accent() { return (APP.brands[state.brand] || {}).accent || "#2563EB"; }
-function paint() { document.documentElement.style.setProperty("--accent", accent()); }
-
-function forBrand() { return APP.schemas.filter(s => s.brand === state.brand); }
-
-function ticket() {
-  const t = APP.schemas.find(s => s.key === state.tpl);
-  const b = (APP.brands[state.brand] || {}).label || state.brand;
-  const size = t ? (t.format === "square" ? "1200 × 1200" : t.format) : "—";
-  const html = '<span class="on">' + b + '</span><span class="sep">/</span>' +
-    (t ? t.label : "no template") + '<span class="sep">/</span>' + size;
-  $("#ticket").innerHTML = html;
-  $("#ticket2").innerHTML = html;
-}
 
 function drawBrands() {
   $("#brands").innerHTML = Object.entries(APP.brands).map(([k, v]) =>
     '<button data-b="' + k + '" aria-pressed="' + (k === state.brand) + '">' + v.label + '</button>'
   ).join("");
   $("#brands").querySelectorAll("button").forEach(b =>
-    b.onclick = () => { state.brand = b.dataset.b; state.tpl = null; state.values = {}; render(); });
+    b.onclick = () => { state.brand = b.dataset.b; render(); });
 }
 
-function drawTpls() {
-  const list = forBrand();
-  if (!list.length) {
-    $("#tpls").innerHTML = '<div class="empty">No templates for this brand yet. ' +
-      'They appear here automatically once they are built.</div>';
-    return;
-  }
-  $("#tpls").innerHTML = list.map(s =>
-    '<button data-k="' + s.key + '" aria-pressed="' + (s.key === state.tpl) + '">' +
-      '<div class="n"><i></i>' + s.label + '</div>' +
-      '<div class="b">' + s.blurb + '</div>' +
-    '</button>'
-  ).join("");
-  $("#tpls").querySelectorAll("button").forEach(b =>
-    b.onclick = () => { pick(b.dataset.k); });
+function ticket() {
+  const b = (APP.brands[state.brand] || {}).label || state.brand;
+  const html = '<span class="on">' + b + '</span><span class="sep">/</span>1200 x 1200';
+  $("#ticket").innerHTML = html;
+  const t2 = $("#ticket2"); if (t2) t2.innerHTML = html;
 }
 
-async function pick(key) {
-  state.tpl = key;
-  state.values = {};
-  render();
-  try {
-    const r = await fetch("/defaults/" + key);
-    if (r.ok) { state.values = await r.json(); render(); }
-  } catch (e) {}
+function render() {
+  document.documentElement.style.setProperty("--accent", accent());
+  drawBrands(); ticket();
+  $("#go").disabled = state.busy;
 }
 
-function drawForm() {
-  const t = APP.schemas.find(s => s.key === state.tpl);
-  if (!t) { $("#formGroup").style.display = "none"; return; }
-  $("#formGroup").style.display = "flex";
-  $("#form").innerHTML = t.fields.map(f => {
-    const v = (state.values[f.name] || "").replace(/"/g, "&quot;");
-    const ctl = f.type === "textarea"
-      ? '<textarea rows="' + (f.rows || 3) + '" data-f="' + f.name + '">' +
-          (state.values[f.name] || "") + '</textarea>'
-      : '<input type="' + (f.type === "url" ? "url" : "text") + '" data-f="' + f.name +
-          '" value="' + v + '"' + (f.optional ? ' placeholder="Optional"' : "") + '>';
-    return '<div class="field" style="margin-bottom:14px">' +
-      '<label>' + f.label + '</label>' + ctl +
-      (f.hint ? '<div class="hint">' + f.hint + '</div>' : "") + '</div>';
-  }).join("");
-  $("#form").querySelectorAll("[data-f]").forEach(el =>
-    el.oninput = () => { state.values[el.dataset.f] = el.value; });
-}
-
-function render() { paint(); drawBrands(); drawTpls(); drawForm(); ticket();
-  $("#briefGroup").style.display = (APP.copyEnabled && state.tpl) ? "flex" : "none";
-  $("#go").disabled = !state.tpl || state.busy; }
-
-async function write() {
-  const brief = $("#brief").value.trim();
-  if (!brief || !state.tpl || state.busy) return;
-  state.busy = true; fail("");
-  $("#write").innerHTML = '<span class="spin"></span>Writing';
-  $("#write").disabled = true;
-  try {
-    const headers = { "content-type": "application/json" };
-    if (KEY) headers["x-api-key"] = KEY;
-    const r = await fetch("/copy", {
-      method: "POST", headers,
-      body: JSON.stringify({ template: state.tpl, brief }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || ("Copy failed (" + r.status + ")"));
-    state.values = Object.assign({}, state.values, j.values);
-    render();
-    $("#formGroup").scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (e) {
-    fail(e.message);
-  } finally {
-    state.busy = false;
-    $("#write").textContent = "Write the copy";
-    $("#write").disabled = false;
-  }
-}
-
-function fail(msg) {
-  $("#err").innerHTML = msg ? '<div class="err">' + msg + '</div>' : "";
-}
+function fail(msg) { $("#err").innerHTML = msg ? '<div class="err">' + msg + '</div>' : ""; }
 
 async function go() {
-  if (!state.tpl || state.busy) return;
+  const brief = $("#brief").value.trim();
+  if (!brief) { fail("Write a brief first."); return; }
+  if (state.busy) return;
   state.busy = true; fail("");
-  $("#go").innerHTML = '<span class="spin"></span>Rendering';
+  $("#go").innerHTML = '<span class="spin"></span>Planning';
   $("#go").disabled = true;
   try {
     const headers = { "content-type": "application/json" };
     if (KEY) headers["x-api-key"] = KEY;
-    const r = await fetch("/render", {
+    const r = await fetch("/plan", {
       method: "POST", headers,
-      body: JSON.stringify({ template: state.tpl, data: state.values }),
+      body: JSON.stringify({
+        brand: state.brand,
+        brief,
+        count: parseInt($("#count").value, 10) || 2,
+        create: true,
+      }),
     });
     if (r.status === 401) {
       const k = prompt("Passcode");
       if (k) { KEY = k; localStorage.setItem("studio_key", k); }
-      throw new Error("Enter the passcode and render again.");
+      throw new Error("Enter the passcode and try again.");
     }
-    if (!r.ok) {
-      let m = "Render failed (" + r.status + ")";
-      try { const j = await r.json(); if (j.error) m = j.error; } catch (e) {}
-      throw new Error(m);
-    }
-    state.blob = await r.blob();
-    $("#out").src = URL.createObjectURL(state.blob);
-    $("#sheet").classList.add("up");
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ("Planning failed (" + r.status + ")"));
+    $("#brief").value = "";
+    setView("queue");
   } catch (e) {
     fail(e.message);
   } finally {
     state.busy = false;
-    $("#go").textContent = "Render";
-    $("#go").disabled = !state.tpl;
+    $("#go").textContent = "Plan the posts";
+    $("#go").disabled = false;
   }
-}
-
-function filename() {
-  const d = new Date().toISOString().slice(0, 10);
-  return state.tpl + "-" + d + ".png";
 }
 
 $("#go").onclick = go;
-$("#write").onclick = write;
-$("#close").onclick = () => $("#sheet").classList.remove("up");
-$("#save").onclick = () => {
-  if (!state.blob) return;
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(state.blob);
-  a.download = filename();
-  a.click();
-};
-$("#share").onclick = async () => {
-  if (!state.blob) return;
-  const file = new File([state.blob], filename(), { type: "image/png" });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); } catch (e) {}
-  } else {
-    $("#save").click();
-  }
-};
 
 // ---- views -------------------------------------------------------------
 let view = "make";

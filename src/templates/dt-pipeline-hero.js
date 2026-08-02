@@ -136,6 +136,8 @@ export const schema = {
   brand: "drivertrack",
   label: "Pipeline hero",
   blurb: "Product hero with the callbacks queue and a space for a laptop shot.",
+  useWhen:
+    "Use when the post is about the product doing the work: overnight screening, waking up to a pipeline, call or text reach. Has a hero image zone, so pair it with a screenshot.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text" },

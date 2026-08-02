@@ -77,6 +77,8 @@ export const schema = {
   brand: "drivertrack",
   label: "Quote card",
   blurb: "A DSP owner's words. Only use with their written permission.",
+  useWhen:
+    "Use only when the brief supplies a real quote from a named or anonymised customer with permission. Never fabricate a quote.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text" },

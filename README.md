@@ -96,6 +96,23 @@ Statuses: `draft`, `approved`, `posted`, `rejected`.
 
 Posts live in R2 under `posts/`, renders under `renders/`.
 
+### `POST /plan`
+
+Turns a brief into complete posts: picks the template, writes every field, chooses a
+screenshot, writes the caption, first comment and alt text.
+
+```json
+{ "brand": "drivertrack", "brief": "a week about peak hiring", "count": 3, "create": true }
+```
+
+- `create: true` (default) writes them straight into the queue as drafts.
+- `create: false` returns the plan without saving, for review first.
+
+It is given the brand voice, every template's `useWhen` line, the screenshot
+catalogue, and the posts already in the queue so it does not repeat angles or reuse
+the same template. Anything it invents that does not exist (unknown template or
+screenshot) is dropped and reported in `warnings` rather than reaching the renderer.
+
 ### Product screenshots
 
 The service signs into the DriverTrack demo tenant with headless Chromium, captures

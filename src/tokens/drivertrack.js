@@ -80,19 +80,36 @@ export const drivertrack = {
     tabularNums: '"tnum" 1',
   },
 
-  // Modular scale, base 16, ratio 1.2 (tighter than Revive because B2B carries more info)
+  // Type scale derived from ISO 9241-303 angular legibility at 350mm viewing
+  // distance on a 1200px canvas. See DESIGN-SPEC.md section 2. These are FINAL
+  // sizes on the canvas. There is no multiplier and no separate rendered size.
   size: {
-    xs: 16,
-    sm: 19,
-    base: 23,
-    md: 28,
-    lg: 33,
-    xl: 40,
-    xxl: 48,
-    display: 58,
+    label: 40,      // 17.0 arc min. Tags and pills only.
+    small: 46,      // 19.6 arc min.
+    body: 54,       // 23.0 arc min. ISO recommended.
+    subhead: 64,    // 27.3 arc min.
+    headline: 92,   // 39.2 arc min. The scroll stopper.
+    display: 132,   // 56.2 arc min. Statement mode.
+    stat: 200,      // 85.2 arc min.
   },
 
-  // 8-point spacing system
+  // Copy budgets. If it does not fit, cut the copy, never the type size.
+  budget: {
+    headline: 9,    // words
+    display: 6,
+    body: 18,
+    small: 14,
+  },
+
+  // Locked shell geometry
+  shell: {
+    canvas: 1200,
+    margin: 64,
+    logoHeight: 100,   // 8% of canvas. Present, recognisable, subordinate.
+    diamond: 20,       // the fluent device. Never moves, never resizes.
+    maxBlocks: 2,      // 3 only if one is a cta. Attention limit, not taste.
+  },
+
   space: (n) => `${n * 8}px`,
 
   radius: {

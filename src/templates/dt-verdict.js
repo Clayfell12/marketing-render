@@ -95,6 +95,8 @@ export const schema = {
   brand: "drivertrack",
   label: "Screening verdict",
   blurb: "Two decisions side by side with the reasoning. Answers the will-it-reject-good-people objection.",
+  useWhen:
+    "Use when the post is about judgement and trust: does automated screening reject good people, how a decision was reached, the reasoning behind a pass or fail.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text" },

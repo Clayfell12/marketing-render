@@ -80,6 +80,8 @@ export const schema = {
   brand: "drivertrack",
   label: "Stat card",
   blurb: "One big number carrying a single proof point, with two supporting facts.",
+  useWhen:
+    "Use when there is ONE number worth leading with. Do not invent numbers. Only use this template if the brief supplies a real figure.",
   format: "square",
   fields: [
     { name: "eyebrow", label: "Eyebrow", type: "text" },
