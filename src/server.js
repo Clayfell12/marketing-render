@@ -13,6 +13,7 @@ import { appHtml } from "./app.js";
 import { generateCopy } from "./lib/copy.js";
 import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
 import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
+import { planPosts } from "./lib/planner.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -56,6 +57,26 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { ok: true, templates: Object.keys(templates) });
+  }
+
+  // --- Planner ---
+  if (req.method === "POST" && req.url === "/plan") {
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+    const body = await readBody(req);
+    if (!body) return send(res, 400, { error: "invalid JSON" });
+    try {
+      const out = await planPosts({
+        brand: body.brand || "drivertrack",
+        brief: body.brief,
+        count: Math.min(Math.max(parseInt(body.count, 10) || 3, 1), 7),
+        create: body.create !== false,
+      });
+      return send(res, 200, out);
+    } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
   }
 
   // --- Product screenshots ---
