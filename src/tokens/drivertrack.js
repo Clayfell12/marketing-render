@@ -36,6 +36,12 @@ export const drivertrack = {
 
   // Voice and audience. Used by the copy generator so output sounds like the brand
   // rather than like generic SaaS marketing.
+  // Fixed facts the copy generator must use rather than invent.
+  links: {
+    site: "drivertrack.co",
+    demo: "drivertrack.co",
+  },
+
   voice: {
     audience:
       "Owners and operations managers at UK Amazon Delivery Service Partners. Thin margins, " +
