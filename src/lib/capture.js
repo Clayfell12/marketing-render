@@ -279,14 +279,14 @@ export async function discover() {
           document.querySelectorAll("div, section, article, li").forEach((el) => {
             const r = el.getBoundingClientRect();
             // a good fragment is roughly card sized: readable when magnified
-            if (r.width > 220 && r.width < 620 && r.height > 90 && r.height < 460) {
+            if (r.width > 200 && r.width < 900 && r.height > 60 && r.height < 700) {
               const cls = (el.className || "").toString().split(/\s+/).slice(0, 3).join(".");
               out.push({ w: Math.round(r.width), h: Math.round(r.height),
                 sel: el.tagName.toLowerCase() + (cls ? "." + cls : ""),
                 text: (el.innerText || "").trim().slice(0, 48).replace(/\n/g, " ") });
             }
           });
-          return out.slice(0, 8);
+          return out.slice(0, 12);
         });
         fragments.push({ page: shot.name, candidates: cands });
       } catch (e) {
@@ -373,11 +373,22 @@ export async function refreshShots(only = null) {
           target = await page.$(shot.selector);
           if (!target) report.push(`${shot.name}: selector not found, fell back to full page`);
         }
-        const raw = Buffer.from(
-          target
-            ? await target.screenshot({ type: "png" })
-            : await page.screenshot({ type: "png" })
-        );
+        let raw;
+        if (target) {
+          const box = await target.boundingBox();
+          if (box && shot.maxHeight && box.height > shot.maxHeight) {
+            // a tall column shrunk into the graphic is illegible again, so take a
+            // legible top portion instead of the whole thing
+            raw = Buffer.from(await page.screenshot({
+              type: "png",
+              clip: { x: box.x, y: box.y, width: box.width, height: shot.maxHeight },
+            }));
+          } else {
+            raw = Buffer.from(await target.screenshot({ type: "png" }));
+          }
+        } else {
+          raw = Buffer.from(await page.screenshot({ type: "png" }));
+        }
         const framed = await frame(raw);
         const url = await uploadToR2(framed, `shots/${shot.name}.png`);
         results.push({ name: shot.name, ok: true, url, bytes: framed.length });
