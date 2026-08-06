@@ -253,6 +253,84 @@ export async function deleteSession(id) {
   return true;
 }
 
+// --- the working brief -------------------------------------------------------
+
+const PROOF_KINDS = new Set(["figure", "quote", "none"]);
+const INTENTS = new Set(["direct", "opinion"]);
+const SLOTS = new Set([
+  "idea", "proof", "showsProduct", "demonstration",
+  "intent", "count", "avoid", "schedule", "notes",
+]);
+
+// A true partial patch: absent means unchanged. There is no null sentinel, because
+// "null means leave it alone" is indistinguishable from a legitimate null and forces
+// the model to restate eight untouched slots on every call.
+//
+// Two asymmetries, both deliberate: `avoid` replaces, because it is a statement of the
+// current position; `notes` appends, because it accumulates.
+// Every free-text slot ends up inside a prompt, so it gets cleaned on the way in.
+// Angle brackets are the tell: the brand voice is plain prose and never needs them,
+// whereas a model that fumbles a tool call can leak its own scaffolding into a string
+// parameter. A real run put "><parameter name=" into notes, which would then have been
+// handed to the planner as if it were something the user said.
+const clean = (s) => String(s ?? "").replace(/[<>]/g, " ").replace(/\s+/g, " ").trim();
+const cleanList = (xs) => (xs || []).map(clean).filter(Boolean);
+
+export function mergeBrief(brief, patch = {}) {
+  const unknown = Object.keys(patch).filter((k) => !SLOTS.has(k));
+  if (unknown.length) throw new BriefError(`unknown brief slots: ${unknown.join(", ")}`);
+
+  const next = { ...brief, proof: { ...brief.proof }, avoid: [...brief.avoid], notes: [...brief.notes] };
+
+  if ("idea" in patch) next.idea = clean(patch.idea);
+  if ("demonstration" in patch) next.demonstration = clean(patch.demonstration);
+  if ("schedule" in patch) next.schedule = clean(patch.schedule);
+  if ("showsProduct" in patch) next.showsProduct = Boolean(patch.showsProduct);
+
+  if ("proof" in patch) {
+    const kind = String(patch.proof?.kind ?? "");
+    if (!PROOF_KINDS.has(kind)) {
+      throw new BriefError(`proof.kind must be figure, quote or none, not '${kind}'`);
+    }
+    next.proof = { kind, detail: clean(patch.proof?.detail) };
+  }
+
+  if ("intent" in patch) {
+    const v = String(patch.intent ?? "");
+    if (!INTENTS.has(v)) throw new BriefError(`intent must be direct or opinion, not '${v}'`);
+    next.intent = v;
+  }
+
+  // Range is checked here rather than in the tool schema: the strict subset has no
+  // minimum or maximum, so shape validation cannot carry it.
+  if ("count" in patch) {
+    const n = Number(patch.count);
+    if (!Number.isInteger(n) || n < 1 || n > 7) {
+      throw new BriefError(`count must be a whole number from 1 to 7, not '${patch.count}'`);
+    }
+    next.count = n;
+  }
+
+  if ("avoid" in patch) next.avoid = cleanList(patch.avoid);
+  if ("notes" in patch) next.notes = [...next.notes, ...cleanList(patch.notes)];
+
+  return next;
+}
+
+// The three slots where guessing wrong wastes a render. Everything else gets a stated
+// assumption instead of a question.
+export function requiredSlotsFilled(brief) {
+  return Boolean(brief.idea) && PROOF_KINDS.has(brief.proof?.kind) && typeof brief.showsProduct === "boolean";
+}
+
+export function missingSlots(brief) {
+  const out = [];
+  if (!brief.idea) out.push("idea");
+  if (!PROOF_KINDS.has(brief.proof?.kind)) out.push("proof");
+  if (typeof brief.showsProduct !== "boolean") out.push("showsProduct");
+  return out;
+}
+
 // --- drafts ------------------------------------------------------------------
 
 // Ids are minted once and never reused. Revision mints new ones and marks the replaced

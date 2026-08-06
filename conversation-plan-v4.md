@@ -608,22 +608,38 @@ these are non-streaming requests and 110 seconds is already close to where HTTP 
 bite. If count 7 needs to be comfortable rather than survivable, the next change is
 streaming, not a bigger number.
 
-### Latency is now the least-supported part of this design
+### Measured: the nested planner call does not fit inside a turn
 
-The wall-clock column above is the uncomfortable one. §7 nests a `planPosts` call inside
-a chat turn, and a planner call takes **85 seconds at count 5**. The plan's default count
-is 2, which is unmeasured, but even a generous extrapolation puts a drafting turn near 40
-seconds once the chat round trip is added — one tap on a phone, no streamed feedback, a
-spinner.
+**`planPosts` at count 2 takes 46 seconds** (6 August 2026, one run, the settled F2
+brief). Count 5 is 85s and count 7 is 110s. A conversational turn without drafting is
+about 6 seconds once the cache is warm, so a drafting turn lands near **52 seconds behind
+a spinner, on a phone, with no feedback**.
 
-The one-planner-call-per-turn cap was introduced to stop *two* nested calls blowing a
-proxy timeout. These numbers say one may be enough to do it.
+That is not survivable, and it is not a tuning problem. §7 as written has `draft_posts`
+run inside the turn loop and the turn return the finished drafts. **That part of the
+design is now known to be wrong** and has to change before Phase 3 is built.
 
-**Measure `draft_posts` at count 2 before committing to Phase 3.** If it lands near a
-minute, the nested-call architecture wants revisiting before it is built rather than
-after: either `draft_posts` returns immediately and the drafts arrive on a later poll, or
-the turn streams. Both are larger changes than anything else in this plan, which is
-precisely why the number should be taken early and cheaply. It is one call.
+**Recommended change: the lock already models this.** A held lock means "a turn is in
+progress on this session", which is exactly the state a long draft is in.
+
+- `POST /brief/:id/message` returns as soon as the model asks for `draft_posts`, with
+  the session locked and an assistant turn saying what it is doing.
+- The planner call continues in the background and writes the drafts when it lands,
+  releasing the lock on the same write.
+- The app polls `GET /brief/:id`. Drafts appearing and the lock clearing are the same
+  event, so there is no second piece of state to invent.
+- A process that dies mid-draft leaves a lock that the existing 120-second steal clears,
+  and the user's message is already durable because of the write ordering in §6.
+
+Cost: `POST /message` stops being synchronous for drafting turns only, and the app needs
+a poll. Both are smaller than they sound, and neither adds job state — the lock is the
+job state. Conversational turns stay synchronous at ~6 seconds, which is the common case.
+
+The alternative is streaming the turn, which is a bigger change to `app.js` and buys
+nothing extra here: there is nothing useful to stream during a planner call, because the
+planner returns all its posts at once.
+
+**Phase 3 should not be built against §7 as written.** Revise this section first.
 
 ### Cost, computed
 

@@ -44,6 +44,13 @@ function words(s) {
   return String(s == null ? "" : s).trim().split(/\s+/).filter(Boolean).length;
 }
 
+// What a conversational layer needs to know about blocks: the names and roughly what
+// each is for. Not the shapes — those are this file's business, and duplicating them
+// into a second prompt is how the two drift apart.
+export function blockNamesForPrompt() {
+  return BLOCK_CATALOGUE.map((b) => `${b.name}: ${b.useWhen.split(". ")[0]}.`);
+}
+
 // Copy budgets exist in the token file and are stated in the prompt, but nothing has
 // ever checked that the output obeys them. It does not: a display post came back at
 // seven words against a six-word budget on 5 August 2026. Type size is fixed by

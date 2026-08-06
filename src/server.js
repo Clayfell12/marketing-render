@@ -17,8 +17,9 @@ import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } f
 import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
 import { planPosts } from "./lib/planner.js";
 import {
-  BriefError, createSession, requireSession, listSessions, abandonSession,
+  BriefError, createSession, requireSession, listSessions, abandonSession, withLock,
 } from "./lib/brief.js";
+import { runTurn } from "./lib/brief-turn.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -30,6 +31,22 @@ const BRIEF_ENABLED = process.env.BRIEF_ENABLED === "true";
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { "content-type": "application/json", ...headers });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
+}
+
+// One user message, one turn, under the session's lock. The user's text is appended
+// inside `before` so it is persisted in the same write that takes the lock: a process
+// that dies mid-turn then leaves the message on the record rather than a held lock and
+// no trace of what was said.
+async function sendMessage(id, rev, text) {
+  const { session } = await withLock(id, {
+    rev,
+    allowStatuses: ["open", "drafted", "ready"],
+    before: (s) => {
+      s.transcript.push({ role: "user", text, at: new Date().toISOString() });
+    },
+    work: (s) => runTurn(s),
+  });
+  return session;
 }
 
 async function readBody(req) {
@@ -100,10 +117,20 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "POST" && root === "brief" && !id) {
         const body = await readBody(req);
         if (!body) return send(res, 400, { error: "invalid JSON" });
-        return send(res, 200, await createSession({ brand: body.brand || "drivertrack" }));
+        const session = await createSession({ brand: body.brand || "drivertrack" });
+        const text = String(body.text || "").trim();
+        if (!text) return send(res, 200, session);
+        return send(res, 200, await sendMessage(session.id, session.rev, text));
       }
       if (req.method === "GET" && root === "brief" && id && !action) {
         return send(res, 200, await requireSession(id));
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "message") {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        const text = String(body.text || "").trim();
+        if (!text) return send(res, 400, { error: "a message is required" });
+        return send(res, 200, await sendMessage(id, body.rev, text));
       }
       if (req.method === "POST" && root === "brief" && id && action === "abandon") {
         const body = (await readBody(req)) || {};
