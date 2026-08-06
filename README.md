@@ -32,6 +32,8 @@ No design canvas, no manual step. A graphic is the locked shell plus one or two 
 | `R2_PUBLIC_BASE` | Upload to R2 | Usually same as `ASSET_BASE`. |
 | `ANTHROPIC_API_KEY` | Copy generation | From console.anthropic.com. Without it the Brief panel is hidden. |
 | `COPY_MODEL` | Optional | Defaults to `claude-sonnet-5`. |
+| `COPY_EFFORT` | Optional | Thinking depth for the planner: `low` to `max`. Unset uses the model default. |
+| `BRIEF_ENABLED` | Optional | `true` turns on conversational briefing. Off by default; the `/brief*` routes 404 without it. |
 
 ## Mobile app
 
@@ -119,6 +121,29 @@ It is given the brand voice, every block's `useWhen` line, the screenshot
 catalogue, and the posts already in the queue so it does not repeat angles or reuse
 the same shape. Anything it invents that does not exist (unknown block or
 screenshot) is dropped and reported in `warnings` rather than reaching the renderer.
+
+### Conversational briefing (in progress, off by default)
+
+Being built to replace one-shot briefing with a conversation that converges on a working
+brief and text drafts before anything renders. Plan and rationale in
+`conversation-plan-v4.md`; the fixtures that decide whether it ships are in
+`gate-fixtures.md`.
+
+Set `BRIEF_ENABLED=true` to expose it. Sessions live in R2 under `briefs/`.
+
+| Method | Route | Does |
+|---|---|---|
+| `POST` | `/brief` | Start a session. DriverTrack only. |
+| `GET` | `/brief/:id` | The full session |
+| `POST` | `/brief/:id/abandon` | End it |
+| `GET` | `/briefs` | Resumable sessions, transcripts stripped |
+
+Sessions carry a `rev` for double-submit and a turn lock for the second message sent
+while the first is still running. Mutating calls send the `rev` they last saw and get a
+`409` on a mismatch or a held lock. A lock older than two minutes is assumed dead and
+stolen. Untouched sessions are swept to `abandoned` after fourteen days, on read.
+
+Conversation, drafting and approve are not built yet.
 
 ### Product screenshots
 

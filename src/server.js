@@ -16,9 +16,16 @@ import { appHtml } from "./app.js";
 import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
 import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
 import { planPosts } from "./lib/planner.js";
+import {
+  BriefError, createSession, requireSession, listSessions, abandonSession,
+} from "./lib/brief.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
+
+// Conversational briefing is off unless asked for, so the whole feature is reversible
+// with a Railway variable rather than a revert. See conversation-plan-v4.md §14.
+const BRIEF_ENABLED = process.env.BRIEF_ENABLED === "true";
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { "content-type": "application/json", ...headers });
@@ -70,6 +77,42 @@ const server = http.createServer(async (req, res) => {
       });
       return send(res, 200, out);
     } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
+  }
+
+  // --- Conversational briefing -------------------------------------------
+  // Phase 1: sessions only. No model, no drafting, no approve — those routes
+  // arrive with the turn loop. Off unless BRIEF_ENABLED.
+  if (req.url === "/briefs" || req.url === "/brief" || req.url.startsWith("/brief/")) {
+    if (!BRIEF_ENABLED) return send(res, 404, { error: "not found" });
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+
+    const parts = req.url.split("?")[0].split("/").filter(Boolean); // brief/:id/:action
+    const [root, id, action] = parts;
+
+    try {
+      if (req.method === "GET" && root === "briefs") {
+        return send(res, 200, { ok: true, sessions: await listSessions() });
+      }
+      if (req.method === "POST" && root === "brief" && !id) {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        return send(res, 200, await createSession({ brand: body.brand || "drivertrack" }));
+      }
+      if (req.method === "GET" && root === "brief" && id && !action) {
+        return send(res, 200, await requireSession(id));
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "abandon") {
+        const body = (await readBody(req)) || {};
+        return send(res, 200, await abandonSession(id, body.rev));
+      }
+      return send(res, 404, { error: "not found" });
+    } catch (e) {
+      // BriefError carries the status it wants; anything else is genuinely a 500.
+      if (e instanceof BriefError) return send(res, e.status, { error: e.message });
       return send(res, 500, { error: e.message });
     }
   }
