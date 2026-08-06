@@ -1,16 +1,18 @@
 // HTTP render service.
-// POST /render  { template, format, data, upload }  -> PNG (or JSON with R2 url if upload)
+// POST /render  { spec, upload, filename }  -> PNG (or JSON with R2 url if upload)
 // GET  /health  -> ok
 //
 // This is the deployable entry point. Railway runs this. The marketing-studio
-// skill calls POST /render to produce finished assets.
+// skill calls POST /render to produce finished assets. A spec is the composed
+// shape the planner emits: { theme, eyebrow, headline, accentWord, display, blocks }.
 
 import http from "node:http";
 import { renderToPng } from "./lib/render.js";
 import { uploadToR2 } from "./lib/r2.js";
-import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
+import { brands } from "./brands.js";
+import { compose } from "./compose.js";
+import { BLOCKS } from "./blocks.js";
 import { appHtml } from "./app.js";
-import { generateCopy } from "./lib/copy.js";
 import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
 import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
 import { planPosts } from "./lib/planner.js";
@@ -43,20 +45,13 @@ const server = http.createServer(async (req, res) => {
 
   // Mobile app UI
   if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = appHtml({ schemas, brands, requiresKey: Boolean(API_KEY), copyEnabled: Boolean(process.env.ANTHROPIC_API_KEY) });
+    const html = appHtml({ brands, requiresKey: Boolean(API_KEY) });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
 
-  // Template defaults, so the app can prefill the form with the real copy
-  if (req.method === "GET" && req.url.startsWith("/defaults/")) {
-    const key = decodeURIComponent(req.url.slice("/defaults/".length));
-    if (!templates[key]) return send(res, 404, { error: "unknown template" });
-    return send(res, 200, defaultsFor(key));
-  }
-
   if (req.method === "GET" && req.url === "/health") {
-    return send(res, 200, { ok: true, templates: Object.keys(templates) });
+    return send(res, 200, { ok: true, blocks: Object.keys(BLOCKS) });
   }
 
   // --- Planner ---
@@ -146,29 +141,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Copy generation
-  if (req.method === "POST" && req.url === "/copy") {
-    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
-      return send(res, 401, { error: "unauthorized" });
-    }
-    const body = await readBody(req);
-    if (!body) return send(res, 400, { error: "invalid JSON" });
-    const { template, brief } = body;
-    const schema = schemas.find((s) => s.key === template);
-    if (!schema) return send(res, 404, { error: "unknown template" });
-    if (!brief || !brief.trim()) return send(res, 400, { error: "Write a brief first." });
-    try {
-      const values = await generateCopy({
-        schema,
-        defaults: defaultsFor(template),
-        brief: brief.trim(),
-      });
-      return send(res, 200, { ok: true, values });
-    } catch (e) {
-      return send(res, 500, { error: e.message });
-    }
-  }
-
   if (req.method === "POST" && req.url === "/render") {
     if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
       return send(res, 401, { error: "unauthorized" });
@@ -176,21 +148,23 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     if (!body) return send(res, 400, { error: "invalid JSON" });
 
-    const { template, format, data = {}, upload = false, filename } = body;
-    const tpl = templates[template];
-    if (!tpl) {
-      return send(res, 404, {
-        error: `unknown template '${template}'`,
-        available: Object.keys(templates),
+    // A spec, not a template name: the composer builds the graphic from the
+    // locked shell plus its blocks. Accept a bare spec too, for convenience.
+    const { spec, upload = false, filename } = body;
+    const s = spec || (body.headline || body.blocks ? body : null);
+    if (!s || (!s.headline && !Array.isArray(s.blocks))) {
+      return send(res, 400, {
+        error: "a spec is required: { theme, eyebrow, headline, accentWord, display, blocks }",
+        blocks: Object.keys(BLOCKS),
       });
     }
 
     try {
-      const { html, width, height } = tpl({ format, ...data });
+      const { html, width, height } = compose(s);
       const png = await renderToPng({ html, width, height, scale: 2 });
 
       if (upload) {
-        const key = filename || `${template}-${format || "default"}-${Date.now()}.png`;
+        const key = filename || `render-${Date.now()}.png`;
         const url = await uploadToR2(png, key);
         return send(res, 200, { ok: true, url, width, height, bytes: png.length });
       }

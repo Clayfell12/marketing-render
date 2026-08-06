@@ -1,16 +1,16 @@
 // Mobile web app served at GET /.
-// A dispatch console for content: pick brand, pick template, fill the sheet, render.
+// A dispatch console for content: pick brand, write a brief, review the queue.
 //
 // Design notes:
-// - Dark chrome on purpose. Every render is a white-ground 1200x1200, so a dark
-//   frame lets you judge the artwork accurately instead of white-on-white.
+// - Dark chrome on purpose. Renders are 1200x1200 in either theme, and a neutral
+//   dark frame lets you judge both accurately without the page fighting the art.
 // - The accent colour IS the brand you are working on. Switch brand, the whole
 //   console changes colour. You always know what you are building for.
-// - Job-sheet header strip carries real state (brand, template, output size)
+// - Job-sheet header strip carries real state (brand, output size)
 //   rather than decoration.
 
-export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
-  const data = JSON.stringify({ schemas, brands, requiresKey, copyEnabled });
+export function appHtml({ brands, requiresKey }) {
+  const data = JSON.stringify({ brands, requiresKey });
 
   return `<!doctype html>
 <html lang="en">
@@ -96,18 +96,6 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
     font-family:inherit;transition:background .15s,color .15s;}
   .seg button[aria-pressed="true"]{background:var(--accent);color:#fff;}
 
-  /* template list */
-  .tpl{display:flex;flex-direction:column;gap:8px;}
-  .tpl button{display:block;width:100%;text-align:left;background:var(--panel);
-    border:1px solid var(--hairline);border-radius:var(--r);padding:15px 16px;
-    color:var(--ink);font-family:inherit;transition:border-color .15s,background .15s;}
-  .tpl button[aria-pressed="true"]{border-color:var(--accent);background:var(--panel-2);}
-  .tpl .n{font-size:16px;font-weight:700;display:flex;align-items:center;gap:9px;}
-  .tpl .n i{width:8px;height:8px;border-radius:2px;background:var(--hairline);
-    transform:rotate(45deg);flex:none;transition:background .15s;}
-  .tpl button[aria-pressed="true"] .n i{background:var(--accent);}
-  .tpl .b{font-size:13px;color:var(--ink-muted);margin-top:3px;line-height:1.4;}
-
   /* fields */
   .field{display:flex;flex-direction:column;gap:7px;}
   .field label{font-size:13px;font-weight:600;color:var(--ink-muted);padding-left:2px;}
@@ -117,12 +105,6 @@ export function appHtml({ schemas, brands, requiresKey, copyEnabled }) {
     line-height:1.45;resize:none;transition:border-color .15s;}
   input:focus,textarea:focus{outline:none;border-color:var(--accent);}
   input::placeholder,textarea::placeholder{color:var(--ink-faint);}
-
-  .write{width:100%;border:1px solid var(--accent);background:transparent;color:var(--accent);
-    border-radius:999px;padding:14px;font-size:15px;font-weight:700;font-family:inherit;
-    display:flex;align-items:center;justify-content:center;gap:9px;}
-  .write:disabled{opacity:.45;}
-  .write .spin{border-color:rgba(37,99,235,.3);border-top-color:var(--accent);}
 
   .row2{display:flex;gap:10px;}
   .fieldsm{flex:0 0 130px;display:flex;flex-direction:column;gap:7px;}
@@ -332,7 +314,8 @@ function drawQueue() {
       (p.imageUrl ? '<img src="' + p.imageUrl + '" alt="">' : "") +
       '<div class="pbody">' +
         '<div class="pmeta"><span class="badge b-' + p.status + '">' + p.status + '</span>' +
-          '<span>' + esc(p.template) + '</span><span class="sep">·</span><span>' + esc(when) + '</span></div>' +
+          '<span>' + esc((p.spec && p.spec.theme) || p.brand || "") + '</span>' +
+          '<span class="sep">·</span><span>' + esc(when) + '</span></div>' +
         (p.note ? '<div class="pnote">' + esc(p.note) + '</div>' : "") +
         '<div class="pcap" data-cap>' + esc(p.caption) + '</div>' +
         (p.caption && p.caption.length > 220 ? '<div class="more" data-more>Show all</div>' : "") +
