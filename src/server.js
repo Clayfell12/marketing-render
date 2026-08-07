@@ -20,6 +20,7 @@ import {
   BriefError, createSession, requireSession, listSessions, abandonSession, withLock,
 } from "./lib/brief.js";
 import { runTurn } from "./lib/brief-turn.js";
+import { approveDrafts } from "./lib/brief-approve.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
@@ -99,8 +100,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- Conversational briefing -------------------------------------------
-  // Phase 1: sessions only. No model, no drafting, no approve — those routes
-  // arrive with the turn loop. Off unless BRIEF_ENABLED.
+  // Phase 3: sessions, the turn loop, drafting and partial approve.
+  // Off unless BRIEF_ENABLED.
   if (req.url === "/briefs" || req.url === "/brief" || req.url.startsWith("/brief/")) {
     if (!BRIEF_ENABLED) return send(res, 404, { error: "not found" });
     if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
@@ -131,6 +132,17 @@ const server = http.createServer(async (req, res) => {
         const text = String(body.text || "").trim();
         if (!text) return send(res, 400, { error: "a message is required" });
         return send(res, 200, await sendMessage(id, body.rev, text));
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "approve") {
+        const body = (await readBody(req)) || {};
+        const out = await approveDrafts(id, {
+          rev: body.rev,
+          only: body.only,
+          force: Boolean(body.force),
+        });
+        // A mid-batch failure still persisted its successes, so this is a 200 carrying
+        // ok: false rather than an error: the client needs the posts that did render.
+        return send(res, 200, out);
       }
       if (req.method === "POST" && root === "brief" && id && action === "abandon") {
         const body = (await readBody(req)) || {};

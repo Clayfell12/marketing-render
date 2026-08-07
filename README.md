@@ -133,17 +133,31 @@ Set `BRIEF_ENABLED=true` to expose it. Sessions live in R2 under `briefs/`.
 
 | Method | Route | Does |
 |---|---|---|
-| `POST` | `/brief` | Start a session. DriverTrack only. |
+| `POST` | `/brief` | Start a session, and run the first turn if `text` is given. DriverTrack only. |
 | `GET` | `/brief/:id` | The full session |
+| `POST` | `/brief/:id/message` | Send a message; runs one turn. `{ text, rev }` |
+| `POST` | `/brief/:id/approve` | Render the settled drafts. `{ rev, only?, force? }` |
 | `POST` | `/brief/:id/abandon` | End it |
 | `GET` | `/briefs` | Resumable sessions, transcripts stripped |
 
-Sessions carry a `rev` for double-submit and a turn lock for the second message sent
-while the first is still running. Mutating calls send the `rev` they last saw and get a
-`409` on a mismatch or a held lock. A lock older than two minutes is assumed dead and
-stolen. Untouched sessions are swept to `abandoned` after fourteen days, on read.
+The chat model is a producer, not a writer: it interviews, keeps a structured brief, and
+hands that brief to the existing planner, which is still the only thing that writes a
+spec. Its tools are `update_brief`, `draft_posts`, `revise_drafts`, `edit_draft`,
+`declare_ready` and `reply`. Theme is server-enforced after every path that touches a
+spec, and copy budgets are checked on all of them.
 
-Conversation, drafting and approve are not built yet.
+Approval is per draft, so a batch can be settled a post at a time. Up to three per call;
+a draft that already rendered is skipped, so retrying after a failure mid-batch cannot
+double-render.
+
+Sessions carry a `rev` for double-submit and a turn lock for the second message sent
+while the first is still running. Mutating calls, approve included, send the `rev` they
+last saw and get a `409` on a mismatch or a held lock. A lock older than two minutes is
+assumed dead and stolen. Untouched sessions are swept to `abandoned` after fourteen
+days, on read.
+
+The app has no chat view yet, so this is curl-only. Whether it ships at all is decided
+by the gate in `gate-fixtures.md`, which has not been run.
 
 ### Product screenshots
 

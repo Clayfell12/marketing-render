@@ -901,6 +901,15 @@ That alone proves the hard part.
 `declare_ready`, `approve` with partial and mid-batch failure. `checkBudgets` wired in.
 Then **run §13**. Do not start Phase 4 until it passes.
 
+> **Built, 7 August 2026.** Tools in `brief-turn.js`, approval in `brief-approve.js`,
+> `composeBriefText` and the draft helpers in `brief.js`, `POST /brief/:id/approve`
+> wired. Every row of the table below is covered; 111 tests pass with no key, no
+> network and no Chromium. `planPosts` grew an injectable `fetchImpl` so the nested
+> planner call can be faked alongside the chat call — `POST /plan` is unchanged.
+>
+> **The gate has not been run.** That is what remains of this phase, and Phase 4 does
+> not start until it passes.
+
 **Phase 4. The app.** Chat view, brief card, draft cards, chips, mic, `GET /briefs` resume,
 `BRIEF_ENABLED` off by default.
 

@@ -253,7 +253,9 @@ export function validatePlan(plans, brand = "drivertrack") {
   return { posts, warnings };
 }
 
-export async function planPosts({ brand = "drivertrack", brief, count = 3, create = false }) {
+// fetchImpl is injectable because the briefing turn loop nests this call inside its own
+// and its tests fake both models. Defaults to global fetch, so POST /plan is unchanged.
+export async function planPosts({ brand = "drivertrack", brief, count = 3, create = false, fetchImpl = fetch }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
   if (!brief || !brief.trim()) throw new Error("A brief is required.");
@@ -262,7 +264,7 @@ export async function planPosts({ brand = "drivertrack", brief, count = 3, creat
   const all = await listPosts().catch(() => []);
   const recent = all.filter((p) => p.brand === brand && p.status !== "rejected").slice(0, 12);
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",

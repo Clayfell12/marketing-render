@@ -5,17 +5,33 @@
 // spec itself, so it cannot contradict rules it was never told. See
 // conversation-plan-v4.md §7.
 //
-// Phase 2 ships `update_brief` and `reply` only. Drafting, revision and readiness
-// arrive with the planner tool.
+// Phase 3 adds the planner-class tools. `blocks` is deliberately not patchable by
+// `edit_draft`: wanting different blocks is a re-plan, not a patch, and keeping block
+// shapes in planner.js alone is what stops two prompts drifting apart. §7.
 
 import { drivertrack } from "../tokens/drivertrack.js";
-import { blockNamesForPrompt } from "./planner.js";
-import { BriefError, mergeBrief, missingSlots } from "./brief.js";
+import { blockNamesForPrompt, planPosts, validatePlan, checkBudgets } from "./planner.js";
+import {
+  BriefError,
+  mergeBrief,
+  missingSlots,
+  requiredSlotsFilled,
+  composeBriefText,
+  mintDraftId,
+  openDrafts,
+  enforceTheme,
+  demoteReadiness,
+} from "./brief.js";
 import { log } from "./brief-log.js";
 
 const MODEL = process.env.BRIEF_MODEL || "claude-opus-5";
 const MAX_ROUNDS = 6;
 const MAX_OPTIONS = 4;
+
+// Each planner-class call is a full Anthropic round trip nested inside the chat round
+// trip. Two in one request is how a proxy timeout happens, so the second one in a turn
+// gets an error result rather than a silent drop. §7.
+const MAX_PLANNER_CALLS = 1;
 
 const BRANDS = { drivertrack };
 
@@ -146,6 +162,58 @@ export const TOOLS = [
     }),
   },
   {
+    name: "draft_posts",
+    description:
+      "Hand the settled brief to the planner and get back draft posts. Only callable " +
+      "once the idea, the proof and the product question are settled. You do not write " +
+      "the posts; this does. Call it once per turn at most.",
+    strict: true,
+    input_schema: obj({
+      count: { type: "integer", description: "How many posts. Defaults to the brief's count." },
+    }),
+  },
+  {
+    name: "revise_drafts",
+    description:
+      "Re-plan the current drafts against feedback. Use this when the wanted change is " +
+      "about the argument or which blocks carry it. For fixing the words in one draft, " +
+      "use edit_draft instead. Call it once per turn at most.",
+    strict: true,
+    input_schema: obj({
+      feedback: { type: "string", description: "What to change, in the user's own terms." },
+    }, ["feedback"]),
+  },
+  {
+    name: "edit_draft",
+    description:
+      "Correct the copy on one draft in place: shorten a headline, fix an eyebrow, " +
+      "tighten a caption. Send only the fields you are changing. Cannot change blocks — " +
+      "wanting different blocks is a re-plan, so use revise_drafts for that.",
+    strict: true,
+    input_schema: obj({
+      draftId: { type: "string" },
+      eyebrow: { type: "string" },
+      headline: { type: "string" },
+      accentWord: { type: "string" },
+      display: { type: "boolean" },
+      caption: { type: "string" },
+      firstComment: { type: "string" },
+      altText: { type: "string" },
+      note: { type: "string" },
+      scheduledFor: { type: "string" },
+    }, ["draftId"]),
+  },
+  {
+    name: "declare_ready",
+    description:
+      "Say the batch is settled and hand the decision back. Ends the turn. Only when " +
+      "the brief is settled and there is at least one draft standing.",
+    strict: true,
+    input_schema: obj({
+      summary: { type: "string", description: "What you are handing over, in a sentence or two." },
+    }, ["summary"]),
+  },
+  {
     name: "reply",
     description:
       "Say something to the user. Every turn ends with this. When you are asking " +
@@ -165,8 +233,15 @@ export const TOOLS = [
 
 // update_brief must run before anything that reads the brief, and the end tool must run
 // last or it terminates the turn before the mutators beside it have taken effect.
-const TIER = { update_brief: 0, reply: 2 };
+const TIER = { update_brief: 0, reply: 2, declare_ready: 2 };
 const tierOf = (name) => (name in TIER ? TIER[name] : 1);
+
+const PLANNER_CLASS = new Set(["draft_posts", "revise_drafts"]);
+
+// Fields edit_draft may touch, split by where they live. `blocks` is absent from both
+// on purpose — see the header.
+const SPEC_FIELDS = ["eyebrow", "headline", "accentWord", "display"];
+const POST_FIELDS = ["caption", "firstComment", "altText", "note", "scheduledFor"];
 
 // ---------------------------------------------------------------------------
 // The turn
@@ -181,13 +256,18 @@ function toMessages(session) {
   // Volatile state goes last, after the append-only transcript, so the cacheable
   // prefix stays intact as the conversation grows.
   const missing = missingSlots(session.brief);
+  const standing = session.drafts.filter((d) => d.state === "open" || d.state === "approved");
+
   messages.push({
     role: "user",
     content:
       `CURRENT BRIEF\n${JSON.stringify(session.brief, null, 2)}\n\n` +
+      `DRAFTS\n${standing.length ? standing.map(summariseDraft).join("\n") : "(none yet)"}\n\n` +
       (missing.length
         ? `STILL UNSETTLED: ${missing.join(", ")}`
-        : `Everything required is settled. Say so rather than asking more.`),
+        : standing.length
+          ? `Everything required is settled and there are drafts on the table.`
+          : `Everything required is settled. Draft the posts rather than asking more.`),
   });
 
   return messages;
@@ -227,25 +307,178 @@ async function callModel({ brand, messages, fetchImpl }) {
   return res.json();
 }
 
-function runTool(session, name, input) {
+// A planned post becomes a draft. `warnings` is what the card shows and what the model
+// reads back, so an over-budget headline is visible on both sides.
+function toDraft(session, post) {
+  const draft = {
+    draftId: mintDraftId(session),
+    spec: post.spec,
+    caption: post.caption || "",
+    firstComment: post.firstComment || "",
+    altText: post.altText || "",
+    note: post.note || "",
+    scheduledFor: post.scheduledFor || "",
+    state: "open",
+    postId: "",
+    warnings: [],
+  };
+  enforceTheme(draft, session.brief);
+  draft.warnings = checkBudgets(draft.spec, session.brand)
+    .map((b) => `${b.field} is ${b.words} words, budget ${b.budget}`);
+  return draft;
+}
+
+// What the model needs to see of a draft when revising: the argument, not the payload.
+const summariseDraft = (d) =>
+  `${d.draftId} [${d.state}] ${d.spec?.display ? "display " : ""}${d.spec?.theme || "?"} ` +
+  `blocks(${(d.spec?.blocks || []).map((b) => b.type).join(",") || "none"}) ` +
+  `headline: ${d.spec?.headline || "(none)"}`;
+
+function replaceOpenDrafts(session, posts) {
+  // Replaced drafts are kept as `dropped` rather than deleted: ids are never reused, so
+  // a card someone was reading never silently becomes a different post.
+  for (const d of session.drafts) if (d.state === "open") d.state = "dropped";
+  const made = posts.map((p) => toDraft(session, p));
+  session.drafts.push(...made);
+  return made;
+}
+
+async function runTool(session, name, input, ctx) {
   if (name === "update_brief") {
     session.brief = mergeBrief(session.brief, input || {});
+    demoteReadiness(session);
     return { ok: true, brief: session.brief, stillUnsettled: missingSlots(session.brief) };
+  }
+
+  if (PLANNER_CLASS.has(name)) {
+    if (ctx.plannerCalls >= MAX_PLANNER_CALLS) {
+      return { ok: false, error: "already planned this turn. Reply with what you have." };
+    }
+    ctx.plannerCalls += 1;
+    return name === "draft_posts"
+      ? await draftPosts(session, input, ctx)
+      : await reviseDrafts(session, input, ctx);
+  }
+
+  if (name === "edit_draft") return editDraft(session, input);
+
+  if (name === "declare_ready") {
+    if (!requiredSlotsFilled(session.brief)) {
+      return { ok: false, error: `the brief is not settled: ${missingSlots(session.brief).join(", ")} still missing` };
+    }
+    const standing = session.drafts.filter((d) => d.state === "open" || d.state === "approved");
+    if (!standing.length) {
+      return { ok: false, error: "there are no drafts to be ready with. Call draft_posts first." };
+    }
+    session.status = "ready";
+    session.readyAt = new Date().toISOString();
+    say(session, String(input.summary || ""), []);
+    return { ok: true, ended: true, drafts: standing.map((d) => d.draftId) };
   }
 
   if (name === "reply") {
     const options = (input.options || []).map(String).slice(0, MAX_OPTIONS);
-    session.transcript.push({
-      role: "assistant",
-      text: String(input.text || ""),
-      options,
-      at: new Date().toISOString(),
-    });
+    say(session, String(input.text || ""), options);
     return { ok: true, ended: true };
   }
 
   throw new BriefError(`unknown tool '${name}'`);
 }
+
+async function draftPosts(session, input, ctx) {
+  if (!requiredSlotsFilled(session.brief)) {
+    return {
+      ok: false,
+      error: `cannot draft yet: ${missingSlots(session.brief).join(", ")} still missing. Ask about those first.`,
+    };
+  }
+
+  const count = Number.isInteger(input.count) ? input.count : session.brief.count;
+  const { posts, warnings } = await planPosts({
+    brand: session.brand,
+    brief: composeBriefText(session),
+    count,
+    create: false,
+    fetchImpl: ctx.fetchImpl,
+  });
+
+  if (!posts.length) return { ok: false, error: "the planner returned nothing usable. Try different wording." };
+
+  const made = replaceOpenDrafts(session, posts);
+  session.status = "drafted";
+  session.readyAt = "";
+  return {
+    ok: true,
+    drafts: made.map(summariseDraft),
+    warnings: [...warnings, ...made.flatMap((d) => d.warnings)],
+  };
+}
+
+async function reviseDrafts(session, input, ctx) {
+  const open = openDrafts(session);
+  if (!open.length) return { ok: false, error: "there are no open drafts to revise. Call draft_posts first." };
+
+  const feedback = String(input.feedback || "").trim();
+  if (!feedback) return { ok: false, error: "revise_drafts needs feedback saying what to change." };
+
+  // Ask for exactly as many as are standing, not brief.count: revising three drafts
+  // must not quietly become two because the brief said two.
+  const { posts, warnings } = await planPosts({
+    brand: session.brand,
+    brief:
+      composeBriefText(session) +
+      `\n\nREVISION FEEDBACK\n${feedback}` +
+      `\n\nCURRENT DRAFTS BEING REPLACED\n${open.map(summariseDraft).join("\n")}`,
+    count: open.length,
+    create: false,
+    fetchImpl: ctx.fetchImpl,
+  });
+
+  if (!posts.length) return { ok: false, error: "the revision returned nothing usable. Try different wording." };
+
+  const made = replaceOpenDrafts(session, posts);
+  session.status = "drafted";
+  session.readyAt = "";
+  return {
+    ok: true,
+    drafts: made.map(summariseDraft),
+    warnings: [...warnings, ...made.flatMap((d) => d.warnings)],
+  };
+}
+
+function editDraft(session, input) {
+  const draft = session.drafts.find((d) => d.draftId === input.draftId);
+  if (!draft) return { ok: false, error: `no draft '${input.draftId}'` };
+  if (draft.state !== "open") {
+    return { ok: false, error: `draft ${draft.draftId} is ${draft.state} and cannot be edited` };
+  }
+
+  // Validate a candidate, not the draft itself: a rejected edit must leave the session
+  // exactly as it was. validatePlan takes the flat plan shape, so flatten and re-split.
+  const candidate = { ...draft.spec, ...pick(input, SPEC_FIELDS) };
+  for (const f of POST_FIELDS) candidate[f] = f in input ? input[f] : draft[f];
+
+  const { posts, warnings } = validatePlan(candidate, session.brand);
+  if (!posts.length) {
+    return { ok: false, error: warnings.join("; ") || "the edit left the draft unusable" };
+  }
+
+  const [post] = posts;
+  draft.spec = post.spec;
+  for (const f of POST_FIELDS) draft[f] = post[f];
+  enforceTheme(draft, session.brief);
+  draft.warnings = checkBudgets(draft.spec, session.brand)
+    .map((b) => `${b.field} is ${b.words} words, budget ${b.budget}`);
+
+  demoteReadiness(session);
+  return { ok: true, draft: summariseDraft(draft), warnings: draft.warnings };
+}
+
+const pick = (src, keys) => {
+  const out = {};
+  for (const k of keys) if (k in src) out[k] = src[k];
+  return out;
+};
 
 function say(session, text, options = []) {
   session.transcript.push({ role: "assistant", text, options, at: new Date().toISOString() });
@@ -259,6 +492,10 @@ export async function runTurn(session, { fetchImpl = fetch } = {}) {
   const started = Date.now();
   const messages = toMessages(session);
   const stats = { rounds: 0, tools: [], cacheRead: 0, output: 0 };
+  // The planner cap is per turn, not per round, so it lives outside the loop. The
+  // nested planner call gets the same fetch as the chat call, so a test that fakes one
+  // fakes both.
+  const ctx = { plannerCalls: 0, fetchImpl };
   let ended = false;
 
   while (stats.rounds < MAX_ROUNDS && !ended) {
@@ -287,7 +524,7 @@ export async function runTurn(session, { fetchImpl = fetch } = {}) {
       const t0 = Date.now();
       let result;
       try {
-        result = runTool(session, u.name, u.input || {});
+        result = await runTool(session, u.name, u.input || {}, ctx);
         if (result.ended) ended = true;
         log("brief.tool", { id: session.id, tool: u.name, ok: true, ms: Date.now() - t0 });
       } catch (e) {

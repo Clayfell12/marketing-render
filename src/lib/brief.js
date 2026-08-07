@@ -331,10 +331,103 @@ export function missingSlots(brief) {
   return out;
 }
 
+// --- the bridge to the planner -----------------------------------------------
+
+/**
+ * The working brief as prose for `planPosts`. Deterministic and boring on purpose:
+ * it is the seam between the two models, and the one place where "no figure exists"
+ * turns into words the planner is actually told. See conversation-plan-v4.md §4.
+ *
+ * There is deliberately no COUNT section. `planPosts` already renders
+ * `Plan ${count} LinkedIn post(s)` at the top of its own prompt, so emitting a count
+ * here too puts two numbers in one prompt that can disagree. Count is a parameter,
+ * and only a parameter.
+ */
+export function composeBriefText(session) {
+  const b = session.brief;
+  const lines = [];
+
+  lines.push("IDEA", b.idea || "(not stated)", "");
+
+  lines.push("PROOF");
+  if (b.proof?.kind === "figure") {
+    lines.push(`Use this figure exactly: ${b.proof.detail}. The stat block is allowed.`);
+  } else if (b.proof?.kind === "quote") {
+    lines.push(`Use this quote exactly: ${b.proof.detail}. The quote block is allowed.`);
+  } else {
+    // The single most important line in this string. Without it the planner fills the
+    // gap with a plausible number, which is the failure the whole feature exists to fix.
+    lines.push(
+      "No figures or quotes are available. Argue from reasoning. " +
+        "Do NOT use the stat or quote blocks."
+    );
+  }
+  lines.push("");
+
+  lines.push("PRODUCT");
+  if (b.showsProduct) {
+    lines.push(
+      `This post SHOWS the product. Theme must be dark. ` +
+        `Demonstration: ${b.demonstration || "none"}.`
+    );
+  } else {
+    lines.push(
+      "This post does NOT show the product. Theme must be light. " +
+        "No thread or screenshot blocks."
+    );
+  }
+  lines.push("");
+
+  lines.push("INTENT");
+  lines.push(
+    b.intent === "opinion"
+      ? "Opinion / advice. No cta. Display mode allowed."
+      : "Direct response. Include a cta."
+  );
+  lines.push("");
+
+  lines.push("AVOID");
+  lines.push(...(b.avoid.length ? b.avoid : ["(none)"]));
+  lines.push("");
+
+  lines.push("NOTES");
+  lines.push(...(b.notes.length ? b.notes : ["(none)"]));
+  lines.push("");
+
+  lines.push("SCHEDULE", b.schedule || "(unspecified)");
+
+  return lines.join("\n");
+}
+
 // --- drafts ------------------------------------------------------------------
 
 // Ids are minted once and never reused. Revision mints new ones and marks the replaced
 // drafts dropped, so a card you were reading never silently becomes a different post.
 export function mintDraftId(session) {
   return `d${session.nextDraftSeq++}`;
+}
+
+export const openDrafts = (session) => session.drafts.filter((d) => d.state === "open");
+
+/**
+ * Theme is a rule, not a preference, so the server is its source of truth. The planner
+ * still sees the rule in its own prompt — steering it before generation is cheaper than
+ * correcting after — but a wrong pick cannot survive this. §4.
+ */
+export function enforceTheme(draft, brief) {
+  if (typeof brief.showsProduct === "boolean" && draft.spec) {
+    draft.spec.theme = brief.showsProduct ? "dark" : "light";
+  }
+  return draft;
+}
+
+/**
+ * Anything that changes the brief or the drafts un-declares readiness. Otherwise a
+ * session could be `ready` while describing posts nobody has looked at since.
+ */
+export function demoteReadiness(session) {
+  if (session.status === "ready") {
+    session.status = "drafted";
+    session.readyAt = "";
+  }
 }
