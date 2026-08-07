@@ -314,11 +314,48 @@ Worth recording that **C3 barely discriminated**: 23 of 24 passed. Block choice 
 where either path struggles, so on this evidence the criterion earns little of its keep.
 If the gate is re-run, the effort is better spent on C1 and C2.
 
+### Verdict, first run
+
+**Did not pass.** The rule is beat baseline on C2 and C4 *and* do not regress on C1 or
+C3. C2 and C4 were decisive wins, C3 level, C1 a regression — the only thing in the way.
+
+## After the C1 fix, 7 August 2026
+
+`enforceTheme` now derives theme per draft from what the draft contains, rather than
+stamping the brief-level `showsProduct` flag across the batch. F2, F3 and F6 re-run from
+fresh sessions with the same honest answers.
+
+| | Baseline | Chat | Required | |
+|---|---|---|---|---|
+| C1 theme | 1 fail / 12 | 1 fail / 12 | no regression | **level** |
+| C2 no invented proof | wins 1 | wins 4 | must beat | **beats** |
+| C3 block choice | 11 / 12 | 12 / 12 | no regression | **level** ⚠ |
+| C4 copy in budget | 4 over | **0 over** | must beat | **beats** |
+
+**C1 went from 3 failures to 1.** The remaining chat failure is F1 post 2 — `dark` with
+`stat` and `cta` and no product — and F1 was not re-run, so that draft still carries a
+theme stamped by the old code. Under the current rule it derives to `light`. The
+baseline's one failure is the same post on the other path, where nothing enforces theme
+at all.
+
+**F6 is the proof the fix landed.** The brief asks for one product post and one statement
+post. It now produces exactly that in a single batch: `dark` carrying the interviews
+screenshot, `light` carrying the quote. Before the fix it took two separate sessions and
+the model correctly reported it could not do what was asked.
+
+**C4 improved to a clean sweep.** Every re-run fixture came back inside budget with no
+post over, against baseline's 4 of 12.
+
+⚠ **C3 is partially stale.** The re-run replaced 6 of the 12 chat posts, and the blind
+scoring was done on the originals. The C1, C2 and C4 results above are current; C3 needs
+those 6 posts re-scored before the pass is fully clean.
+
 ### Verdict
 
-**The gate does not pass as it stands.** The rule is beat baseline on C2 and C4 *and*
-do not regress on C1 or C3. C2 and C4 are decisive wins, C3 is level. C1 is a regression,
-and it is the only thing standing between this and a pass.
+**The gate passes on C1, C2 and C4.** C3 needs a short re-score of the six changed posts
+to confirm, and F1 is worth re-running to clear the last stale theme. Nothing in the
+evidence so far suggests either will change the outcome, but neither is scored yet, so
+the pass is provisional until they are.
 
 The regression has one cause, not many: `showsProduct` is per brief, theme is per post.
 Fixing it means deriving theme from what each draft actually contains — a product block
