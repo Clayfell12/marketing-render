@@ -28,6 +28,7 @@ let session = blank();
 
 // Three scripted turns: a question with chips, then drafts, then ready.
 let turn = 0;
+let failNext = false;
 function advance(text) {
   session.transcript.push({ role: "user", text, at: "" });
   session.rev += 2;
@@ -76,12 +77,14 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(appHtml({ brands, requiresKey: false, briefEnabled: true }));
   }
-  if (url === "/__reset") { session = blank(); turn = 0; return json(res, 200, { ok: true }); }
+  if (url === "/__fail") { failNext = true; return json(res, 200, { ok: true }); }
+  if (url === "/__reset") { session = blank(); turn = 0; failNext = false; return json(res, 200, { ok: true }); }
   if (url === "/favicon.ico") { res.writeHead(204); return res.end(); }
   if (url === "/posts") return json(res, 200, { posts: [] });
   if (url === "/briefs") return json(res, 200, { ok: true, sessions: [] });
 
   if (url === "/brief" && req.method === "POST") {
+    if (failNext) { failNext = false; return json(res, 500, { error: "the model call failed (400). credit balance is too low" }); }
     const b = await read(req);
     if (b.text) advance(b.text);
     return json(res, 200, session);

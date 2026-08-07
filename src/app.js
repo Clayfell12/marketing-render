@@ -551,9 +551,13 @@ function hdrs(json) {
   return h;
 }
 
+// The inline block sits below the thread, and drawChat scrolls the thread's bottom into
+// view — which put every error below the fold, so a failing turn looked like a turn that
+// simply never answered. The toast is fixed, so it cannot be scrolled past.
 function chatFail(msg) {
   const el = $("#chatErr");
   if (el) el.innerHTML = msg ? '<div class="err">' + esc(msg) + "</div>" : "";
+  if (msg) toast(msg.length > 90 ? msg.slice(0, 88) + "…" : msg);
 }
 
 // Every mutating call sends the rev it last saw. A 409 means the world moved: reload it
@@ -597,6 +601,10 @@ async function startSession(text) {
 
 async function sendMsg(text) {
   if (!text || chat.busy) return;
+  // Show it straight away. A turn can take a minute when the planner runs, and until
+  // the server answers there is otherwise nothing on screen but the thinking dots —
+  // which reads as the app having swallowed what you said.
+  chat.pending = text;
   chat.busy = true; chatFail(""); drawChat();
   try {
     if (!SID || !chat.s || chat.s.status === "abandoned") {
@@ -607,8 +615,18 @@ async function sendMsg(text) {
         body: JSON.stringify({ text: text, rev: chat.s.rev }),
       });
     }
+    chat.pending = "";
   } catch (e) {
-    if (!e.handled) chatFail(e.message);
+    chat.pending = "";
+    if (!e.handled) {
+      chatFail(e.message);
+      // The server appends the message in the same write that takes the lock, so it may
+      // well have landed even though the turn failed. Ask rather than assume.
+      await reloadSession();
+      // Whatever the truth on the server, put the words back where they can be re-sent.
+      const box = $("#msg");
+      if (box && !box.value) box.value = text;
+    }
   } finally {
     chat.busy = false;
     drawChat();
@@ -716,8 +734,11 @@ function drawThread() {
   if (!el) return;
   const s = chat.s;
   if (!s || !s.transcript || !s.transcript.length) {
-    el.innerHTML = '<div class="empty">Tell me what you want posting about. ' +
-      "I'll ask a couple of things, then hand it to the planner.</div>";
+    el.innerHTML = chat.pending
+      ? '<div class="bub me">' + esc(chat.pending) + "</div>" +
+        (chat.busy ? '<div class="thinking"><i></i><i></i><i></i></div>' : "")
+      : '<div class="empty">Tell me what you want posting about. ' +
+        "I'll ask a couple of things, then hand it to the planner.</div>";
     return;
   }
 
@@ -732,6 +753,7 @@ function drawThread() {
   // moment in it, and a card that scrolled away would be a card you cannot act on.
   const live = (s.drafts || []).filter(d => d.state === "open" || d.state === "approved");
   html += live.map(draftCard).join("");
+  if (chat.pending) html += '<div class="bub me">' + esc(chat.pending) + "</div>";
   if (chat.busy) html += '<div class="thinking"><i></i><i></i><i></i></div>';
 
   el.innerHTML = html;
