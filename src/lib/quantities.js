@@ -47,6 +47,11 @@ const SUFFIX_VALUES = { k: 1000, m: 1e6, bn: 1e9, hundred: 100, thousand: 1000, 
 // evening", and only the second is a quantity. So these are always reported, never
 // subtracted, and always judged by a human.
 export const VAGUE = [
+  // Fractions belong here rather than in the numeric set. "Half your applicants won't
+  // answer" is a fabricated statistic and the F1 baseline printed exactly that, but
+  // "third" and "quarter" are also ordinals and a calendar quarter, so mapping them to
+  // numbers puts back the false positives the numeric pass exists to avoid.
+  "half", "a third", "two thirds", "a quarter", "three quarters", "most", "the majority",
   "doubled", "tripled", "quadrupled", "halved", "double", "triple", "twice",
   "dozens", "scores of", "handful", "several", "countless", "umpteen",
   "most of", "much of", "chunk of", "chunks of", "plenty of", "loads of",

@@ -152,3 +152,16 @@ test("auditPost is clean on a post that only reuses the brief's figures", () => 
   };
   assert.deepEqual(auditPost(post, brief).invented, []);
 });
+
+// F1's baseline printed "Half your applicants won't answer a call from a number they
+// don't know" — a fabricated statistic the first version of this module walked straight
+// past, because fractions were in neither pass.
+test("fractions are surfaced as quantity claims", () => {
+  const hits = vaguePhrases("Half your applicants won't answer a call");
+  assert.ok(hits.some((h) => h.phrase === "half"), "half is a quantity claim");
+});
+
+test("fractions stay out of the numeric pass, so ordinals do not false-positive", () => {
+  assert.deepEqual(values("the third thing owners notice"), []);
+  assert.deepEqual(values("half your applicants"), []);
+});

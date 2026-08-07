@@ -153,6 +153,21 @@ async function say(fx, text) {
   }
 }
 
+// Re-run the turn on the transcript as it stands, without appending anything. The API
+// returns a 529 often enough that a run of six fixtures will hit one, and the user's
+// message is already durable on the record — re-sending it would duplicate it.
+async function retry(fx) {
+  const id = readIndex()[fx];
+  if (!id) throw new Error(`no chat session for ${fx}`);
+
+  const { session, result } = await withLock(id, { work: (s) => runTurn(s) });
+  saveChat(fx, session);
+  showTurn(session);
+  console.log(`\n  [${result.rounds} rounds, tools: ${result.tools.join(" → ") || "none"}, ` +
+    `cache read ${result.cacheRead}, ${result.ms}ms]`);
+  if (session.status === "ready") console.log(`\n  READY. Drafts in ${RUNS}/${fx}-chat.json`);
+}
+
 async function show(fx) {
   const id = readIndex()[fx];
   if (!id) throw new Error(`no chat session for ${fx}`);
@@ -182,7 +197,7 @@ async function score(fx) {
   }
 }
 
-export { baseline, chat, say, show, score };
+export { baseline, chat, say, retry, show, score };
 
 const [, , cmd, ...rest] = process.argv;
 
@@ -190,6 +205,7 @@ try {
   if (cmd === "baseline") await baseline(rest.length ? rest : ALL);
   else if (cmd === "chat") await chat(rest[0]);
   else if (cmd === "say") await say(rest[0], rest.slice(1).join(" "));
+  else if (cmd === "retry") await retry(rest[0]);
   else if (cmd === "show") await show(rest[0]);
   else if (cmd === "score") for (const fx of rest.length ? rest : ALL) await score(fx);
   else {
