@@ -156,6 +156,18 @@ last saw and get a `409` on a mismatch or a held lock. A lock older than two min
 assumed dead and stolen. Untouched sessions are swept to `abandoned` after fourteen
 days, on read.
 
+Past 24 turns the oldest half of a transcript is condensed into a single note, after the
+turn has succeeded rather than before it, so a failed summary costs a tidy transcript and
+never a message. A hard cap of 40 sits under that and cannot fail. The brief is the
+memory; the transcript is the audit trail.
+
+One JSON line per event on stdout: `brief.turn.start`, `brief.tool`, `brief.turn.end`,
+`brief.ready`, `brief.approve`, `brief.lock.stolen`, `brief.summarise`, `brief.error`.
+Transcript bodies and `proof.detail` are never logged, and a session id is a bearer token
+for the conversation, so `RENDER_API_KEY` must be set in production.
+`cacheRead: 0` on a second turn means the cached prefix is varying and prompt caching has
+silently stopped.
+
 With `BRIEF_ENABLED=true` the app's Make tab retires into a **Chat** tab: a sticky brief
 card showing what is settled and what is still assumed, the conversation, draft cards
 where they were produced, tappable chips from the model's own suggested answers, and a

@@ -17,7 +17,10 @@ const blank = () => ({
   lock: { heldSince: "", turnId: "" },
   brief: { idea: "", proof: { kind: "", detail: "" }, showsProduct: null, demonstration: "",
            intent: "", count: 2, avoid: [], schedule: "", notes: [] },
-  transcript: [], drafts: [], nextDraftSeq: 1,
+  transcript: [
+    { role: "note", text: "Decided: post is about overnight screening. No confirmed figure available, so it argues from reasoning. Owner ruled out anything about peak hiring, covered last week.", at: "" },
+  ],
+  drafts: [], nextDraftSeq: 1,
   readyAt: "", approvedAt: "", postIds: [],
   createdAt: "", updatedAt: "",
 });

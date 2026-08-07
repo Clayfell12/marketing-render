@@ -5,8 +5,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { composeBriefText, openDrafts, __setBackend, createSession } from "../src/lib/brief.js";
-import { TOOLS, runTurn } from "../src/lib/brief-turn.js";
+import {
+  composeBriefText, openDrafts, __setBackend, createSession, capTranscript,
+} from "../src/lib/brief.js";
+import { TOOLS, runTurn, summariseTranscript } from "../src/lib/brief-turn.js";
 import { approveWithin, approveDrafts, __setRenderer, APPROVE_CAP } from "../src/lib/brief-approve.js";
 
 process.env.ANTHROPIC_API_KEY ||= "test-key-not-used";
@@ -797,4 +799,117 @@ test("approve on a stale rev is a 409 before anything renders", async () => {
   });
   assert.equal(calls, 0);
   __setRenderer(null);
+});
+
+// ---------------------------------------------------------------------------
+// transcript growth — Phase 5
+// ---------------------------------------------------------------------------
+
+const manyTurns = (n) => Array.from({ length: n }, (_, i) => ({
+  role: i % 2 ? "assistant" : "user",
+  text: "turn " + i,
+  at: "",
+  ...(i % 2 ? { options: [] } : {}),
+}));
+
+test("capTranscript is a no-op below the cap", () => {
+  const s = session({ transcript: manyTurns(10) });
+  assert.equal(capTranscript(s), false);
+  assert.equal(s.transcript.length, 10);
+});
+
+test("capTranscript keeps the newest entries and drops the oldest", () => {
+  const s = session({ transcript: manyTurns(50) });
+  assert.equal(capTranscript(s, 40), true);
+  assert.equal(s.transcript.length, 40);
+  assert.equal(s.transcript.at(-1).text, "turn 49", "newest survives");
+  assert.equal(s.transcript[0].text, "turn 10", "oldest went");
+});
+
+// The note is the only record of everything older, so it is never what gets trimmed.
+test("capTranscript never drops the leading note", () => {
+  const s = session({ transcript: [{ role: "note", text: "what was decided", at: "" }, ...manyTurns(50)] });
+  capTranscript(s, 40);
+  assert.equal(s.transcript.length, 40);
+  assert.equal(s.transcript[0].role, "note");
+  assert.equal(s.transcript.at(-1).text, "turn 49");
+});
+
+test("summariseTranscript leaves a short transcript alone", async () => {
+  const s = session({ transcript: manyTurns(6) });
+  const fetchImpl = () => { throw new Error("should not be called"); };
+  assert.equal(await summariseTranscript(s, { fetchImpl }), false);
+  assert.equal(s.transcript.length, 6);
+});
+
+test("summariseTranscript folds the oldest half into one note", async () => {
+  const s = session({ transcript: manyTurns(30) });
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "They want overnight screening, no figure available." }] }) });
+
+  assert.equal(await summariseTranscript(s, { fetchImpl }), true);
+  assert.equal(s.transcript[0].role, "note");
+  assert.match(s.transcript[0].text, /no figure available/);
+  assert.equal(s.transcript.length, 16, "one note plus the newest half");
+  assert.equal(s.transcript.at(-1).text, "turn 29", "the newest turn is untouched");
+});
+
+test("summarising twice folds into a fresh note rather than nesting", async () => {
+  const s = session({ transcript: [{ role: "note", text: "older still", at: "" }, ...manyTurns(30)] });
+  let sawExisting = false;
+  const fetchImpl = async (_u, opts) => {
+    if (JSON.parse(opts.body).messages[0].content.includes("older still")) sawExisting = true;
+    return { ok: true, json: async () => ({ content: [{ type: "text", text: "combined note" }] }) };
+  };
+
+  await summariseTranscript(s, { fetchImpl });
+  assert.ok(sawExisting, "the existing note is given to the summariser, not dropped");
+  assert.equal(s.transcript.filter(x => x.role === "note").length, 1, "still exactly one note");
+  assert.equal(s.transcript[0].text, "combined note");
+});
+
+// The whole point of running it after the turn: a failure here costs a tidy transcript,
+// never the user's message.
+test("a failed summary leaves the transcript intact", async () => {
+  const s = session({ transcript: manyTurns(30) });
+  const before = JSON.parse(JSON.stringify(s.transcript));
+  const fetchImpl = async () => ({ ok: false, status: 529, text: async () => "overloaded" });
+
+  assert.equal(await summariseTranscript(s, { fetchImpl }), false);
+  assert.deepEqual(s.transcript, before);
+});
+
+test("an empty summary is treated as a failure, not written as a note", async () => {
+  const s = session({ transcript: manyTurns(30) });
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "   " }] }) });
+  assert.equal(await summariseTranscript(s, { fetchImpl }), false);
+  assert.ok(!s.transcript.some(x => x.role === "note"));
+});
+
+test("a note reaches the model labelled as history, not as the user talking", async () => {
+  const s = session({
+    status: "drafted",
+    transcript: [{ role: "note", text: "decided: overnight screening, no figure", at: "" }],
+  });
+  const fetchImpl = fakeApi({ chat: [turn([toolUse("reply", { text: "ok" })])] });
+
+  await runTurn(s, { fetchImpl });
+  const first = fetchImpl.chatSent[0].messages[0];
+  assert.equal(first.role, "user");
+  assert.match(first.content, /Earlier in this conversation, summarised/);
+  assert.match(first.content, /decided: overnight screening/);
+});
+
+test("a turn summarises only after its own result is on the session", async () => {
+  const s = session({ transcript: manyTurns(30) });
+  const fetchImpl = fakeApi({
+    chat: [turn([toolUse("reply", { text: "the newest thing said" })])],
+    planner: [],
+  });
+  // the summariser shares the injected fetch; it has no tools, so it lands on planner
+  fetchImpl.plannerQueue = null;
+  const stats = await runTurn(s, { fetchImpl }).catch((e) => e);
+
+  // the reply is on the transcript regardless of what summarisation did
+  assert.ok(s.transcript.some(x => x.role === "assistant" && x.text === "the newest thing said"),
+    "the turn's own reply survives");
 });

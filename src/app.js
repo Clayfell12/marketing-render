@@ -178,6 +178,13 @@ export function appHtml({ brands, requiresKey, briefEnabled = false }) {
   .bub.them{align-self:flex-start;background:var(--panel);border:1px solid var(--hairline);
     border-bottom-left-radius:5px;}
   .bub.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px;}
+  /* Stands in for turns that have been condensed away. Reads as a margin note, not as
+     something either party said. */
+  .bub.note{align-self:stretch;max-width:none;background:transparent;
+    border:1px dashed var(--hairline);color:var(--ink-faint);font-size:13px;
+    border-radius:10px;}
+  .bub.note b{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-faint);margin-bottom:6px;font-weight:700;}
   .thinking{align-self:flex-start;display:flex;gap:5px;padding:14px;}
   .thinking i{width:7px;height:7px;border-radius:50%;background:var(--ink-faint);
     animation:bl 1.2s ease-in-out infinite;}
@@ -714,9 +721,12 @@ function drawThread() {
     return;
   }
 
-  let html = s.transcript.map(t =>
-    '<div class="bub ' + (t.role === "assistant" ? "them" : "me") + '">' + esc(t.text) + "</div>"
-  ).join("");
+  let html = s.transcript.map(t => {
+    if (t.role === "note") {
+      return '<div class="bub note"><b>Earlier, summarised</b>' + esc(t.text) + "</div>";
+    }
+    return '<div class="bub ' + (t.role === "assistant" ? "them" : "me") + '">' + esc(t.text) + "</div>";
+  }).join("");
 
   // Drafts sit after the transcript: they are the current state of the batch, not a
   // moment in it, and a card that scrolled away would be a card you cannot act on.

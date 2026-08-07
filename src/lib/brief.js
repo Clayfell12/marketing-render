@@ -21,12 +21,20 @@
 // one person on one phone that is not the failure worth engineering against.
 
 import { putJson, getJson, deleteKey, listKeys } from "./r2.js";
+import { log } from "./brief-log.js";
 import { randomUUID } from "node:crypto";
 
 const PREFIX = "briefs/";
 
 export const LOCK_TTL_MS = 120_000;              // a turn that outlives this is dead
 export const ABANDON_AFTER_MS = 14 * 24 * 3600 * 1000;
+
+// The transcript is audit, not memory — the brief is memory. It still has to fit in a
+// request, so past SUMMARISE_AT turns the oldest half is condensed into one note
+// (brief-turn.js owns that, because it needs a model), and CAP is the floor under it:
+// a deterministic trim that cannot fail, for when summarisation does.
+export const TRANSCRIPT_CAP = 40;
+export const SUMMARISE_AT = 24;
 
 export const STATUSES = ["open", "drafted", "ready", "rendered", "abandoned"];
 const RESUMABLE = new Set(["open", "drafted", "ready"]);
@@ -210,7 +218,10 @@ export async function withLock(id, { rev, before, work, allowStatuses } = {}) {
   if (isLockHeld(session)) {
     throw new BriefError("a turn is already in progress on this session", 409);
   }
+  // A lock present but past its TTL belonged to a process that died. Taking it is
+  // correct, but it is worth a line: a run of these means turns are dying, not racing.
   const stolen = session.lock?.heldSince ? lockAgeMs(session) : null;
+  if (stolen !== null) log("brief.lock.stolen", { id, heldMs: stolen });
 
   if (before) await before(session);
 
@@ -454,6 +465,20 @@ export function enforceTheme(draft, brief) {
  * Anything that changes the brief or the drafts un-declares readiness. Otherwise a
  * session could be `ready` while describing posts nobody has looked at since.
  */
+/**
+ * The deterministic floor under transcript growth: keep the newest CAP entries, and
+ * whatever note sits at the front, because that note is the only record of everything
+ * older. Cannot fail, needs no model, and runs whether or not summarisation worked.
+ */
+export function capTranscript(session, cap = TRANSCRIPT_CAP) {
+  const t = session.transcript;
+  if (t.length <= cap) return false;
+
+  const note = t[0] && t[0].role === "note" ? [t[0]] : [];
+  session.transcript = [...note, ...t.slice(t.length - (cap - note.length))];
+  return true;
+}
+
 export function demoteReadiness(session) {
   if (session.status === "ready") {
     session.status = "drafted";
