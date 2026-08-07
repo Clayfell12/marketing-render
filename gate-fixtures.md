@@ -303,10 +303,22 @@ statement post, and a single boolean cannot express that. It took two separate s
 to produce the pair, and the model correctly reported it could not fix the theme rather
 than claiming it had.
 
+**C3 — block choice, scored blind. Chat 12/12, baseline 11/12. No regression.**
+
+Scored from a shuffled, unlabelled set of all 24 posts, re-associated afterwards against
+a key held outside the scoring sheet. The single failure was F1 baseline post 2, which
+put a `stat` and a `cta` under a headline that already stated both figures — the block
+repeats the headline rather than carrying anything.
+
+Worth recording that **C3 barely discriminated**: 23 of 24 passed. Block choice is not
+where either path struggles, so on this evidence the criterion earns little of its keep.
+If the gate is re-run, the effort is better spent on C1 and C2.
+
 ### Verdict
 
 **The gate does not pass as it stands.** The rule is beat baseline on C2 and C4 *and*
-do not regress on C1 or C3. C2 and C4 are decisive wins. C1 is a regression.
+do not regress on C1 or C3. C2 and C4 are decisive wins, C3 is level. C1 is a regression,
+and it is the only thing standing between this and a pass.
 
 The regression has one cause, not many: `showsProduct` is per brief, theme is per post.
 Fixing it means deriving theme from what each draft actually contains — a product block
