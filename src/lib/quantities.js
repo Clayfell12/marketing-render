@@ -232,9 +232,10 @@ export function vaguePhrases(text) {
 export function collectCopy(post = {}) {
   const spec = post.spec || post;
   const out = [];
+  let block = "";
   const push = (field, text) => {
     const s = String(text ?? "").trim();
-    if (s) out.push({ field, text: s });
+    if (s) out.push({ field, text: s, block });
   };
 
   push("eyebrow", spec.eyebrow);
@@ -243,6 +244,7 @@ export function collectCopy(post = {}) {
 
   for (const [i, b] of (spec.blocks || []).entries()) {
     const at = (name) => `blocks[${i}].${name}`;
+    block = b.type;
     switch (b.type) {
       case "body":
       case "cta":
@@ -283,6 +285,7 @@ export function collectCopy(post = {}) {
     }
   }
 
+  block = "";
   push("caption", post.caption);
   push("firstComment", post.firstComment);
   push("altText", post.altText);
@@ -290,16 +293,28 @@ export function collectCopy(post = {}) {
   return out;
 }
 
+// A thread is a mockup of the product working, not a claim about results, so the sample
+// content inside one is illustrative rather than proof — settled in gate-fixtures.md on
+// 7 August 2026. Both paths produce threads, so counting their contents penalises both
+// equally and measures thread length rather than honesty. Anything that escapes the
+// block and gets asserted in prose still counts.
+export const ILLUSTRATIVE = new Set(["thread"]);
+
 /**
  * The C2 pass for one post: which quantities it introduced that the brief did not
  * supply, and which vague quantity phrases want a human eye.
  */
 export function auditPost(post, briefText) {
   const copy = collectCopy(post);
-  const joined = copy.map((c) => c.text).join(" . ");
+  const scored = copy.filter((c) => !ILLUSTRATIVE.has(c.block));
+  const illustrative = copy.filter((c) => ILLUSTRATIVE.has(c.block));
+  const join = (xs) => xs.map((c) => c.text).join(" . ");
+
   return {
-    invented: inventedQuantities(joined, briefText),
-    vague: vaguePhrases(joined),
+    invented: inventedQuantities(join(scored), briefText),
+    vague: vaguePhrases(join(scored)),
+    // Reported so it is visible and can be spot-checked, never counted against C2.
+    illustrative: inventedQuantities(join(illustrative), briefText),
     fields: copy,
   };
 }

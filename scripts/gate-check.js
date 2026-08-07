@@ -50,7 +50,7 @@ let c4Failures = 0;
 
 for (const [i, post] of posts.entries()) {
   const spec = post.spec || post;
-  const { invented, vague } = auditPost(post, brief);
+  const { invented, vague, illustrative } = auditPost(post, brief);
   const budget = checkBudgets(spec, post.brand || "drivertrack");
 
   console.log(`── post ${i + 1} ${"─".repeat(52)}`);
@@ -65,6 +65,11 @@ for (const [i, post] of posts.entries()) {
     }
   } else {
     console.log("\n   C2  no unsourced numbers");
+  }
+
+  if (illustrative.length) {
+    console.log(`       thread sample content — illustrative, NOT counted against C2:`);
+    console.log(`         ${illustrative.map((x) => x.value).join(", ")}`);
   }
 
   if (vague.length) {

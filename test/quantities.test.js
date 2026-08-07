@@ -165,3 +165,32 @@ test("fractions stay out of the numeric pass, so ordinals do not false-positive"
   assert.deepEqual(values("the third thing owners notice"), []);
   assert.deepEqual(values("half your applicants"), []);
 });
+
+// Settled 7 August 2026: a thread is a mockup, not a claim about results. Both paths
+// produce threads, so counting their contents measures thread length, not honesty.
+test("thread sample content is reported but not counted against C2", () => {
+  const brief = "Post about the overnight screening. Show the screening thread.";
+  const post = {
+    spec: {
+      headline: "Interviews booked while you were asleep",
+      blocks: [{ type: "thread", title: "Automated screener", messages: [
+        { text: "Q4 of 5: full UK licence with no more than 6 points?" },
+        { text: "Yes, clean licence, held 4 years" },
+      ] }],
+    },
+  };
+  const { invented, illustrative } = auditPost(post, brief);
+  assert.deepEqual(invented, [], "nothing from inside the thread counts");
+  assert.ok(illustrative.length > 0, "but it is still reported");
+});
+
+// The exemption is the block, not the number. Escaping into prose is a failure again.
+test("a figure asserted in the caption still counts, thread or no thread", () => {
+  const brief = "Post about the overnight screening. Show the screening thread.";
+  const post = {
+    spec: { headline: "h", blocks: [{ type: "thread", messages: [{ text: "Q5 of 5" }] }] },
+    caption: "An applicant answered five questions at 11pm on a Sunday.",
+  };
+  const { invented } = auditPost(post, brief);
+  assert.ok(invented.some((x) => x.value === 5), "the caption claim is still a C2 failure");
+});

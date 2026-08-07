@@ -232,6 +232,21 @@ posts per path.
 Plus, per brief: **corrections you would need before approving**. Count a correction as
 any change you would ask for, however small.
 
+### What counts as invented — settled 7 August 2026
+
+**Sample content inside a `thread` block is not an invented-proof failure.** A thread is
+a mockup of the product working, not a claim about results: "Q4 of 5: full UK licence
+with no more than 6 points" is illustrative, the same way a screenshot is. Both paths
+produce it, so counting it would penalise them equally and tell you nothing about the
+thing the gate is measuring.
+
+Everything outside the block still counts, including the caption and first comment. A
+figure that escapes the thread and gets asserted as fact in prose — "an applicant
+answered five questions at 11pm on a Sunday" — is a C2 failure like any other.
+
+This ruling decides F1 and F5, where the raw quantity count otherwise favours the
+baseline purely because its threads are shorter.
+
 ### Score C3 blind
 
 C1, C2 and C4 are mechanical — you can count words and spot a number. C3 is a judgement
