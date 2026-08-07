@@ -50,6 +50,16 @@ know it wants is how you fake a pass.
 Paste each brief **verbatim**. If the two paths get different words, the comparison is
 worthless.
 
+**Scoring C2 and C4**, on the JSON either path returned:
+
+```bash
+node scripts/gate-check.js fixtures/f2.txt f2-baseline.json
+```
+
+It prints every quantity in the post that is not in the brief, with the words around
+it, plus any copy over budget. It does not print which path produced the file, so it
+cannot flatter the new thing. C1 and C3 you score by hand, and C3 blind.
+
 ---
 
 ## F1 — control
@@ -280,12 +290,30 @@ One unresolved token: a stray "ten minutes" in post 2's caption that may or may 
 an invented duration. Not chased, because a re-run produces a different sample and would
 not answer it.
 
-### Fix the matcher before the full run
+### Matcher fixed, 7 August 2026
 
-The quantity check compares tokens literally, so it does not know `40` and `forty` are
-the same number, and it flagged F1's legitimate figures as inventions. Normalise number
-words to digits before the set difference, or every figure-carrying fixture will show
-false positives and the strict scoring this gate depends on becomes unreadable.
+The quantity check compared tokens literally, so it did not know `40` and `forty` were
+the same number, and it flagged F1's legitimate figures as inventions. Every
+figure-carrying fixture would have shown the same false positives.
+
+Now in `src/lib/quantities.js`, with `scripts/gate-check.js` over it and tests in
+`test/quantities.test.js`. Both sides normalise to numeric values before the set
+difference, so `forty`, `40`, `5,000`, `five thousand`, `10k`, `twenty-five` and
+`a hundred and twenty` all compare as numbers. Re-run against the 5 August output: F2
+still flags both fabrications and the seven-word display headline; F1 comes back clean
+apart from the "ten minutes" that was already unresolved.
+
+Three limits, stated so the scoring stays honest:
+
+- **It does not decide what counts as a quantity.** "one of the reasons" and "one night"
+  both normalise to 1. Output is a candidate list carrying the surrounding words, and
+  you make the call. Ordinals are excluded outright, because mapping "the first thing"
+  to 1 is what would put the false positives back.
+- **Vague phrases are never subtracted.** F2's brief says "the next evening" (a time of
+  day) and its post says "costs you an evening" (a duration). Only the second is an
+  invention and no matcher separates them, so phrases like these are always surfaced
+  and always judged by hand.
+- **It covers C2 and C4 only.** C1 and C3 stay manual, and C3 stays blind.
 
 ### What this settles
 
