@@ -105,9 +105,13 @@ test("composeBriefText forbids stat and quote outright when there is no proof", 
   assert.match(text, /Do NOT use the stat or quote blocks\./);
 });
 
-test("composeBriefText derives the theme sentence from showsProduct", () => {
+test("composeBriefText states the theme rule per post, not per batch", () => {
   const shown = composeBriefText(session({ brief: brief({ showsProduct: true, demonstration: "thread" }) }));
-  assert.match(shown, /This post SHOWS the product\. Theme must be dark\. Demonstration: thread\./);
+  assert.match(shown, /The product may be shown\. Demonstration: thread\./);
+  assert.match(shown, /dark if that post carries a thread or screenshot, light if it does not/);
+  assert.match(shown, /A batch may hold both\./);
+  // The old wording promised the planner a batch verdict the server no longer honours.
+  assert.ok(!/Theme must be dark/.test(shown), "no batch-wide theme claim");
 
   const hidden = composeBriefText(session({ brief: brief({ showsProduct: false }) }));
   assert.match(hidden, /This post does NOT show the product\. Theme must be light\./);
@@ -187,18 +191,18 @@ test("draft_posts turns planner output into drafts and moves the session on", as
 });
 
 // The planner is told the rule in its own prompt, but the server is the source of truth.
-test("theme is server-enforced whatever the planner returned", async () => {
+test("a post carrying a product block is forced dark whatever the planner said", async () => {
   const s = session({ brief: brief({ showsProduct: true }) });
   const fetchImpl = fakeApi({
     chat: [turn([toolUse("draft_posts", {})]), turn([toolUse("reply", { text: "done" })])],
-    planner: [plan([planned("a headline", { theme: "light" })])],
+    planner: [plan([planned("a headline", { theme: "light", blocks: [{ type: "thread", messages: [] }] })])],
   });
 
   await runTurn(s, { fetchImpl });
-  assert.equal(s.drafts[0].spec.theme, "dark", "showsProduct true forces dark");
+  assert.equal(s.drafts[0].spec.theme, "dark");
 });
 
-test("theme enforcement works the other way too", async () => {
+test("a brief that rules the product out keeps every post light", async () => {
   const s = session({ brief: brief({ showsProduct: false }) });
   const fetchImpl = fakeApi({
     chat: [turn([toolUse("draft_posts", {})]), turn([toolUse("reply", { text: "done" })])],
@@ -207,6 +211,67 @@ test("theme enforcement works the other way too", async () => {
 
   await runTurn(s, { fetchImpl });
   assert.equal(s.drafts[0].spec.theme, "light");
+});
+
+// The 7 August gate run failed C1 three times, every one of them this shape: a display
+// post stamped dark because the batch was product-led. display carries no blocks, so
+// the post showed no product and the theme contradicted its own rule.
+test("a display post in a product-led batch is light, not dark", async () => {
+  const s = session({ brief: brief({ showsProduct: true }) });
+  const fetchImpl = fakeApi({
+    chat: [turn([toolUse("draft_posts", {})]), turn([toolUse("reply", { text: "done" })])],
+    planner: [plan([planned("a bold statement", { theme: "dark", display: true, blocks: [] })])],
+  });
+
+  await runTurn(s, { fetchImpl });
+  assert.equal(s.drafts[0].spec.theme, "light", "no blocks means no product means light");
+});
+
+// F6: a brief wanting one product post and one statement post could not say so when a
+// single boolean decided the whole batch. It took two sessions to produce the pair.
+test("a batch can hold one product post and one statement post", async () => {
+  const s = session({ brief: brief({ showsProduct: true }) });
+  const fetchImpl = fakeApi({
+    chat: [turn([toolUse("draft_posts", {})]), turn([toolUse("reply", { text: "done" })])],
+    planner: [plan([
+      planned("the product one", { theme: "light", blocks: [{ type: "screenshot", name: "pipeline" }] }),
+      planned("the quote one", { theme: "dark", blocks: [{ type: "quote", text: "a line", attribution: "a DSP owner" }] }),
+    ])],
+  });
+
+  await runTurn(s, { fetchImpl });
+  assert.deepEqual(s.drafts.map((d) => d.spec.theme), ["dark", "light"]);
+});
+
+// rows and compare are abstract representations, not the product on screen.
+test("only thread and screenshot count as showing the product", async () => {
+  const s = session({ brief: brief({ showsProduct: true }) });
+  const fetchImpl = fakeApi({
+    chat: [turn([toolUse("draft_posts", {})]), turn([toolUse("reply", { text: "done" })])],
+    planner: [plan([planned("a headline", { theme: "dark", blocks: [{ type: "rows", items: [] }] })])],
+  });
+
+  await runTurn(s, { fetchImpl });
+  assert.equal(s.drafts[0].spec.theme, "light");
+});
+
+// An edit that removes the last product block has to move the theme with it.
+test("editing a post out of display mode re-derives its theme", async () => {
+  const s = session({
+    status: "drafted",
+    brief: brief({ showsProduct: true }),
+    drafts: [draft({ spec: { theme: "light", eyebrow: "E", headline: "a line", accentWord: "", display: true, blocks: [] } })],
+    nextDraftSeq: 2,
+  });
+  const fetchImpl = fakeApi({
+    chat: [
+      turn([toolUse("edit_draft", { draftId: "d1", headline: "a different line" })]),
+      turn([toolUse("reply", { text: "done" })]),
+    ],
+  });
+
+  await runTurn(s, { fetchImpl });
+  assert.equal(s.drafts[0].spec.theme, "light", "still no blocks, still light");
 });
 
 test("an over-budget headline reaches the draft and the model as a warning", async () => {

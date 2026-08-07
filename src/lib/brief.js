@@ -366,9 +366,13 @@ export function composeBriefText(session) {
 
   lines.push("PRODUCT");
   if (b.showsProduct) {
+    // Stated as a per-post rule rather than a batch verdict, because that is now how the
+    // server derives it. Saying "theme must be dark" here made the planner set dark on
+    // posts carrying no product, which the server then had to agree with or overrule.
     lines.push(
-      `This post SHOWS the product. Theme must be dark. ` +
-        `Demonstration: ${b.demonstration || "none"}.`
+      `The product may be shown. Demonstration: ${b.demonstration || "none"}. ` +
+        `Theme follows each post on its own: dark if that post carries a thread or ` +
+        `screenshot, light if it does not. A batch may hold both.`
     );
   } else {
     lines.push(
@@ -409,15 +413,40 @@ export function mintDraftId(session) {
 
 export const openDrafts = (session) => session.drafts.filter((d) => d.state === "open");
 
+// The blocks that put the product on screen. themeRule in src/tokens/drivertrack.js
+// says dark is for "screenshots, threads, screening decisions, pipelines" — these two
+// are the ones that are unambiguously the product itself, rather than an abstract
+// representation of it like `rows` or `compare`.
+export const PRODUCT_BLOCKS = new Set(["thread", "screenshot"]);
+
+export const showsProductBlock = (spec) =>
+  (spec?.blocks || []).some((b) => PRODUCT_BLOCKS.has(b?.type));
+
 /**
  * Theme is a rule, not a preference, so the server is its source of truth. The planner
  * still sees the rule in its own prompt — steering it before generation is cheaper than
  * correcting after — but a wrong pick cannot survive this. §4.
+ *
+ * Derived per draft, from what the draft actually contains. It used to read the
+ * brief-level `showsProduct` flag and stamp every draft in the batch the same, which the
+ * 7 August gate run failed on three times out of six. A `display` post carries no blocks
+ * by definition, so it shows no product, and stamping it dark because the batch was
+ * product-led produced a dark post with nothing in it. F6 was the same fault from the
+ * other side: a brief wanting one product post and one statement post cannot say so with
+ * one boolean.
+ *
+ * `showsProduct` still governs whether product blocks are permitted at all — that is
+ * what composeBriefText tells the planner. It just no longer decides the theme.
  */
 export function enforceTheme(draft, brief) {
-  if (typeof brief.showsProduct === "boolean" && draft.spec) {
-    draft.spec.theme = brief.showsProduct ? "dark" : "light";
+  if (!draft.spec) return draft;
+
+  // A brief that rules the product out keeps every post light, whatever came back.
+  if (brief.showsProduct === false) {
+    draft.spec.theme = "light";
+    return draft;
   }
+  draft.spec.theme = showsProductBlock(draft.spec) ? "dark" : "light";
   return draft;
 }
 
