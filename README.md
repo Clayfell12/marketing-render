@@ -156,8 +156,17 @@ last saw and get a `409` on a mismatch or a held lock. A lock older than two min
 assumed dead and stolen. Untouched sessions are swept to `abandoned` after fourteen
 days, on read.
 
-The app has no chat view yet, so this is curl-only. Whether it ships at all is decided
-by the gate in `gate-fixtures.md`, which has not been run.
+With `BRIEF_ENABLED=true` the app's Make tab retires into a **Chat** tab: a sticky brief
+card showing what is settled and what is still assumed, the conversation, draft cards
+where they were produced, tappable chips from the model's own suggested answers, and a
+dictation button where the browser supports it. Quick plan keeps one-tap `POST /plan`
+alive inside the Chat view. With the flag off, the app is exactly what it was.
+
+The gate in `gate-fixtures.md` has been run and passed: chat beat the one-shot planner on
+invented figures and on copy budgets, and did not regress on theme or block choice.
+
+`check-app.sh` drives the chat view against a mock backend in a real browser and
+screenshots each step — no R2, no API key, no model calls.
 
 ### Product screenshots
 

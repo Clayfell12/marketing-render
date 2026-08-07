@@ -70,7 +70,7 @@ const server = http.createServer(async (req, res) => {
 
   // Mobile app UI
   if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = appHtml({ brands, requiresKey: Boolean(API_KEY) });
+    const html = appHtml({ brands, requiresKey: Boolean(API_KEY), briefEnabled: BRIEF_ENABLED });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
