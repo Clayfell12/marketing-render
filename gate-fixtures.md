@@ -262,6 +262,61 @@ Chat must **beat** baseline on C2 and C4, and must **not regress** on C1 or C3.
 If it does not: stop at Phase 3, keep `POST /plan`, do not build the app. Phases 0 to 3
 are the falsifiable part; Phase 4 is the investment that only pays if this passes.
 
+## Gate result, 7 August 2026 — C1, C2, C4 scored; C3 outstanding
+
+All six fixtures run through both paths, chat driven to `declare_ready` on each.
+Raw output in `gate-runs/`.
+
+**C2 — no invented proof. Chat wins 4–1, one wash.**
+
+| | Baseline invented | Chat invented | |
+|---|---|---|---|
+| F1 | "Half your applicants won't answer", "five questions land by text" | "people apply to three jobs at once", "answered five questions at 11pm" | wash |
+| F2 | "four go straight to voicemail", "the same six numbers" | "five questions" (product mechanism, not a result) | **chat** |
+| F3 | clean — avoided "tripled" | "they apply to three or four ads in an evening" | baseline |
+| F4 | "fifty pence more an hour", "six weeks later", "month two" | "the eight weeks before it", "waits three days" | **chat** |
+| F5 | "three drivers short before peak" | clean | **chat** |
+| F6 | "screening forty applicants by hand" — a figure from F1's brief | clean | **chat** |
+
+F2, F4 and F6 carry the strongest invention traps and chat took all three. F2 is the
+fixture the feature was designed around and it held: the interview asked whether a figure
+existed, was told no, and the post argued without one.
+
+**C4 — copy within budget. Chat wins 12–8.** Baseline put 4 of 12 posts over the display
+budget. Chat put **none** over, on any fixture. The revision loop needed two passes on F2
+(9 words, then 8, then 5 against a budget of 6) rather than converging first time.
+
+**C1 — theme. Chat REGRESSES, 3 failures against baseline's 1.** Every chat failure is
+the same shape: a `display` post forced dark. `display` carries no blocks by definition,
+so the post shows no product, but `showsProduct` is one boolean for the whole brief and
+`enforceTheme` stamps dark on every draft in the batch.
+
+| | Baseline | Chat |
+|---|---|---|
+| F1 | 1 fail (dark, stat+cta, no product) | 1 fail (same) |
+| F2 | 0 | 1 fail (dark display, no product) |
+| F3 | 0 | 1 fail (dark display, no product) |
+| F4, F5, F6 | 0 | 0 |
+
+F6 is the same bug in its other form: the brief asked for one product post and one
+statement post, and a single boolean cannot express that. It took two separate sessions
+to produce the pair, and the model correctly reported it could not fix the theme rather
+than claiming it had.
+
+### Verdict
+
+**The gate does not pass as it stands.** The rule is beat baseline on C2 and C4 *and*
+do not regress on C1 or C3. C2 and C4 are decisive wins. C1 is a regression.
+
+The regression has one cause, not many: `showsProduct` is per brief, theme is per post.
+Fixing it means deriving theme from what each draft actually contains — a product block
+present or absent — rather than from a brief-level flag, and letting a batch hold both
+kinds. That is a contained change to `enforceTheme` and the brief shape, not a rethink of
+the architecture.
+
+So the premise survived and the build has a defect. Phase 4 stays shut until C1 is fixed,
+C3 is scored, and the affected fixtures are re-run.
+
 ### Scoresheet
 
 | Fixture | Path | Posts | C1 | C2 | C3 | C4 | Corrections |
