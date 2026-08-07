@@ -93,3 +93,24 @@ test("approve never sends more than the server's cap of three", () => {
   const js = browserJs(page(true));
   assert.match(js, /\.slice\(0, 3\)/);
 });
+
+// A failing turn used to be silent: the inline error block sits below the thread, and
+// drawChat scrolls the thread's bottom into view, so the error was always below the fold.
+test("a chat failure is surfaced somewhere that cannot be scrolled past", () => {
+  const js = browserJs(page(true));
+  const fn = js.slice(js.indexOf("function chatFail"), js.indexOf("function chatFail") + 400);
+  assert.match(fn, /toast\(/, "chatFail raises a toast, not just the inline block");
+});
+
+// A turn can take a minute when the planner runs. Until the server answers there is
+// otherwise nothing on screen but dots, which reads as the app losing what you said.
+test("the user's message is shown before the server has answered", () => {
+  const js = browserJs(page(true));
+  assert.match(js, /chat\.pending = text/);
+  assert.match(js, /chat\.pending \? .*bub me|if \(chat\.pending\) html \+=/);
+});
+
+test("a failed send puts the text back in the composer", () => {
+  const js = browserJs(page(true));
+  assert.match(js, /if \(box && !box\.value\) box\.value = text/);
+});
