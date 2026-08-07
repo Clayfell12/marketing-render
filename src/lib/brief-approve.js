@@ -72,6 +72,7 @@ export async function approveWithin(session, { only, force = false } = {}) {
     );
   }
 
+  const started = Date.now();
   const posts = [];
   for (const draft of targets) {
     try {
@@ -89,15 +90,23 @@ export async function approveWithin(session, { only, force = false } = {}) {
       draft.postId = post.id;
       session.postIds.push(post.id);
       posts.push(post);
-      log("brief.approve", { id: session.id, draftId: draft.draftId, postId: post.id, ok: true });
     } catch (e) {
       // Successes stay: the lock release writes the session either way, so the drafts
       // already rendered keep their postId and a retry continues from where this stopped.
       // Status is deliberately not advanced — the batch did not finish.
-      log("brief.approve", { id: session.id, draftId: draft.draftId, ok: false, error: e.message });
+      log("brief.approve", {
+        id: session.id, count: posts.length, ok: false, ms: Date.now() - started,
+        postIds: posts.map((p) => p.id), failed: draft.draftId,
+      });
+      log("brief.error", { id: session.id, where: "approve", message: e.message });
       return { ok: false, error: `${draft.draftId} failed to render: ${e.message}`, posts, drafts: session.drafts };
     }
   }
+
+  log("brief.approve", {
+    id: session.id, count: posts.length, ok: true, ms: Date.now() - started,
+    postIds: posts.map((p) => p.id),
+  });
 
   // Only when nothing is left open does the session finish. Otherwise leave the status
   // alone so the conversation can continue about the rest.

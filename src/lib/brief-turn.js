@@ -21,10 +21,15 @@ import {
   openDrafts,
   enforceTheme,
   demoteReadiness,
+  capTranscript,
+  SUMMARISE_AT,
 } from "./brief.js";
 import { log } from "./brief-log.js";
 
 const MODEL = process.env.BRIEF_MODEL || "claude-opus-5";
+// Condensing a transcript is not producer work — it is a small, mechanical reading job,
+// so it goes to the cheapest model rather than the one running the interview.
+const SUMMARY_MODEL = process.env.BRIEF_SUMMARY_MODEL || "claude-haiku-4-5-20251001";
 const MAX_ROUNDS = 6;
 const MAX_OPTIONS = 4;
 
@@ -250,7 +255,11 @@ const POST_FIELDS = ["caption", "firstComment", "altText", "note", "scheduledFor
 function toMessages(session) {
   const messages = session.transcript.map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
-    content: t.text,
+    // A note stands in for turns that have been condensed away. It is labelled so the
+    // model reads it as history rather than as something the user just said.
+    content: t.role === "note"
+      ? `[Earlier in this conversation, summarised]\n${t.text}`
+      : t.text,
   }));
 
   // Volatile state goes last, after the append-only transcript, so the cacheable
@@ -480,6 +489,81 @@ const pick = (src, keys) => {
   return out;
 };
 
+/**
+ * Condense the oldest half of a long transcript into one note.
+ *
+ * Runs only after a turn has already succeeded and its result is safely on the session,
+ * never inline before one: this makes a model call, and a failure here must cost you a
+ * tidier transcript, never your message. Everything it can throw is swallowed.
+ *
+ * It rewrites the front of the message list, so the cached prefix is invalidated and the
+ * next turn pays a cache write. That is the trade — it happens once every dozen or so
+ * turns, against a transcript that would otherwise grow without limit.
+ *
+ * @returns {Promise<boolean>} whether the transcript was rewritten
+ */
+export async function summariseTranscript(session, { fetchImpl = fetch } = {}) {
+  const t = session.transcript;
+  if (t.length < SUMMARISE_AT) return false;
+
+  // Never fold a note into a note: keep the existing one and condense what came after.
+  const from = t[0] && t[0].role === "note" ? 1 : 0;
+  const half = from + Math.floor((t.length - from) / 2);
+  const older = t.slice(from, half);
+  if (!older.length) return false;
+
+  const body = older
+    .map((x) => (x.role === "assistant" ? "Producer: " : "Owner: ") + x.text)
+    .join("\n\n");
+
+  const prompt =
+    "Below is the earlier part of a conversation between a marketing producer and a " +
+    "business owner, planning social posts.\n\nWrite a short note, under 120 words, " +
+    "recording only what was DECIDED and what was RULED OUT: the angle, whether a real " +
+    "figure or quote exists, whether the product is shown, anything the owner said to " +
+    "avoid. Do not invent anything. Do not include figures, quotes or names that are " +
+    "not in the text below. Plain prose, no headings, no preamble.\n\n" +
+    (t[0] && t[0].role === "note" ? "Existing summary of even earlier turns:\n" + t[0].text + "\n\n" : "") +
+    "CONVERSATION\n" + body;
+
+  try {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return false;
+
+    const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: SUMMARY_MODEL,
+        max_tokens: 500,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) throw new Error("summary call failed (" + res.status + ")");
+
+    const json = await res.json();
+    const text = (json.content || [])
+      .filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (!text) throw new Error("summary came back empty");
+
+    session.transcript = [
+      { role: "note", text, at: new Date().toISOString() },
+      ...t.slice(half),
+    ];
+    log("brief.summarise", { id: session.id, folded: older.length, now: session.transcript.length });
+    return true;
+  } catch (e) {
+    // A transcript that is too long is a cost problem. Losing the turn is a correctness
+    // problem. Take the cost one.
+    log("brief.error", { id: session.id, where: "summarise", message: e.message });
+    return false;
+  }
+}
+
 function say(session, text, options = []) {
   session.transcript.push({ role: "assistant", text, options, at: new Date().toISOString() });
 }
@@ -490,6 +574,8 @@ function say(session, text, options = []) {
  */
 export async function runTurn(session, { fetchImpl = fetch } = {}) {
   const started = Date.now();
+  log("brief.turn.start", { id: session.id, rev: session.rev, brand: session.brand });
+
   const messages = toMessages(session);
   const stats = { rounds: 0, tools: [], cacheRead: 0, output: 0 };
   // The planner cap is per turn, not per round, so it lives outside the loop. The
@@ -526,7 +612,11 @@ export async function runTurn(session, { fetchImpl = fetch } = {}) {
       try {
         result = await runTool(session, u.name, u.input || {}, ctx);
         if (result.ended) ended = true;
-        log("brief.tool", { id: session.id, tool: u.name, ok: true, ms: Date.now() - t0 });
+        log("brief.tool", {
+          id: session.id, tool: u.name, ok: result.ok !== false,
+          ms: Date.now() - t0, warnings: (result.warnings || []).length,
+        });
+        if (u.name === "declare_ready" && result.ok) log("brief.ready", { id: session.id });
       } catch (e) {
         // Hand the failure back rather than dropping it: a missing tool_result is a
         // malformed request, and the model can usually fix a bad patch itself.
@@ -550,7 +640,19 @@ export async function runTurn(session, { fetchImpl = fetch } = {}) {
     log("brief.error", { id: session.id, where: "round-cap", rounds: stats.rounds });
   }
 
+  // Only now, with the turn's result already on the session. Summarisation is a model
+  // call that can fail; the hard cap after it cannot, and runs either way.
+  stats.summarised = await summariseTranscript(session, { fetchImpl });
+  stats.capped = capTranscript(session);
+
   stats.ms = Date.now() - started;
+  log("brief.turn.end", {
+    id: session.id, rev: session.rev, status: session.status, ms: stats.ms,
+    tools: stats.tools, cacheRead: stats.cacheRead,
+    // Zero on a second turn means the cached prefix is varying and caching is silently
+    // off. Cheapest possible detector for the failure mode in §8.
+    turns: session.transcript.length,
+  });
   return stats;
 }
 

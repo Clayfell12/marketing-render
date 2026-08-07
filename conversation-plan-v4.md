@@ -915,6 +915,22 @@ Then **run §13**. Do not start Phase 4 until it passes.
 
 **Phase 5. Polish.** Transcript summarisation, the 14-day sweep, complete log fields.
 
+> **Built, 8 August 2026.** The sweep landed early, in Phase 1, and already had a test.
+>
+> Summarisation runs **after** a successful turn and never before, so a failure costs a
+> tidy transcript rather than the user's message — everything it can throw is swallowed
+> and logged. It condenses the oldest half past 24 turns into one `note` entry, folds an
+> existing note into the new one rather than nesting, and goes to Haiku rather than the
+> model running the interview. `capTranscript` is the deterministic floor under it: keeps
+> the newest 40 and never drops the leading note, because that note is the only record of
+> everything older. It runs whether or not summarisation worked.
+>
+> Rewriting the front of the transcript invalidates the cached prefix, so the next turn
+> pays a cache write. That is the trade, and it happens roughly once every dozen turns.
+>
+> Every event in §18 is emitted with its specified fields, verified against the list
+> rather than eyeballed. 140 tests pass.
+
 Phases 0 to 3 are the feature and the proof. 4 makes it usable from a phone. 5 is tidying.
 
 ### Automated tests, required before Phase 3 is done
