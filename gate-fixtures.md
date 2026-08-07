@@ -50,15 +50,25 @@ know it wants is how you fake a pass.
 Paste each brief **verbatim**. If the two paths get different words, the comparison is
 worthless.
 
-**Scoring C2 and C4**, on the JSON either path returned:
+**The harness.** `scripts/gate-run.js` drives both paths against the briefs in
+`fixtures/`, which are extracted from this file so the two cannot drift. Sessions go to
+`gate-runs/` on disk rather than R2: the gate stops at `declare_ready`, so nothing here
+renders, needs Chromium, or touches production. Only `ANTHROPIC_API_KEY` is needed.
 
 ```bash
-node scripts/gate-check.js fixtures/f2.txt f2-baseline.json
+node --env-file=.env scripts/gate-run.js baseline          # all six, unattended
+node --env-file=.env scripts/gate-run.js chat f2           # start the chat path
+node --env-file=.env scripts/gate-run.js say f2 "no, no figure"   # one honest answer
+node --env-file=.env scripts/gate-run.js score f2          # C2 and C4, both paths
 ```
 
-It prints every quantity in the post that is not in the brief, with the words around
-it, plus any copy over budget. It does not print which path produced the file, so it
-cannot flatter the new thing. C1 and C3 you score by hand, and C3 blind.
+The chat path takes one message per invocation on purpose. Answering honestly is a
+requirement of the method, not a formality, so the answers have to come from a person
+one turn at a time rather than from whoever is running the harness.
+
+`score` runs `gate-check.js` over both files: every quantity in the post that is not in
+the brief, with the words around it, plus any copy over budget. It does not tell
+`gate-check` which path produced what. C1 and C3 you score by hand, and C3 blind.
 
 ---
 
