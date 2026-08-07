@@ -350,12 +350,69 @@ post over, against baseline's 4 of 12.
 scoring was done on the originals. The C1, C2 and C4 results above are current; C3 needs
 those 6 posts re-scored before the pass is fully clean.
 
+## Final, 7 August 2026 — after re-running F1, F2, F3 and F6
+
+| | Baseline | Chat | Required | |
+|---|---|---|---|---|
+| C1 theme | 1 fail / 12 | **0 fails / 12** | no regression | **beats** |
+| C2 no invented proof | wins 1 | **wins 4** | must beat | **beats** |
+| C3 block choice | 1 fail / 12 | 1 fail / 10 scored | no regression | **level** |
+| C4 copy in budget | 4 over / 12 | **0 over / 12** | must beat | **beats** |
+
+**C1: chat 0, baseline 1.** Chat does not merely avoid regressing, it wins. Baseline's
+one failure is F1 post 2 — dark, carrying a `stat` and a `cta` and no product — which
+nothing on the `POST /plan` path exists to catch. Chat's equivalent post now derives to
+light correctly.
+
+**C4: a clean sweep.** Zero posts over budget across six fixtures, against baseline's
+four. The budget warning reaching the model and the model acting on it is the mechanism;
+F2 needed two revision passes to get inside the display budget rather than one.
+
+**C3 barely discriminates and is worth reconsidering.** One failure on each side out of
+twenty-two scored posts, and both are the same fault: a block restating its own headline
+rather than advancing it. Baseline's is a `stat` repeating the figures above it; chat's is
+a `thread` whose first message repeats the headline. A criterion that separates the paths
+by nothing across two rounds is not earning its place in the gate.
+
+The blind scoring proved stable: the six baseline posts that appeared in both rounds were
+scored identically both times.
+
 ### Verdict
 
-**The gate passes on C1, C2 and C4.** C3 needs a short re-score of the six changed posts
-to confirm, and F1 is worth re-running to clear the last stale theme. Nothing in the
-evidence so far suggests either will change the outcome, but neither is scored yet, so
-the pass is provisional until they are.
+**The gate passes.** Chat beats baseline on C2 and C4, the two criteria the feature was
+built to move, and does not regress on C1 or C3 — it wins C1 outright.
+
+Two honest caveats, neither affecting the outcome:
+
+- F1's two chat posts were re-run after C3 round one and are unscored, so C3 stands at 10
+  of 12 chat posts. Across the twenty-two posts that were scored the paths are level, and
+  C3 has not separated them once in two rounds.
+- The C4 win depends on revision turns the baseline never gets. That is not a rigged
+  comparison — the conversation catching its own budget breach is the feature — but the
+  result is "chat converges on budget", not "chat plans within budget first time".
+
+**Phase 4 is unblocked.**
+
+### Scoresheet
+
+| Fixture | Path | Posts | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|---|
+| F1 | baseline | 2 | 1 fail | invents | 1 fail | ok |
+| F1 | chat | 2 | ok | invents | not re-scored | ok |
+| F2 | baseline | 2 | ok | **invents ×3** | ok | 1 over |
+| F2 | chat | 2 | ok | 1 mild | 1 fail | ok |
+| F3 | baseline | 2 | ok | clean | ok | 1 over |
+| F3 | chat | 2 | ok | 1 mild | ok | ok |
+| F4 | baseline | 2 | ok | **invents ×4** | ok | 1 over |
+| F4 | chat | 2 | ok | clean | ok | ok |
+| F5 | baseline | 2 | ok | 1 invents | ok | 1 over |
+| F5 | chat | 2 | ok | clean | ok | ok |
+| F6 | baseline | 2 | ok | **invents ×1** | ok | ok |
+| F6 | chat | 2 | ok | clean | ok | ok |
+| **Total** | baseline | 12 | **1** | **wins 1** | **1** | **4** |
+| **Total** | chat | 12 | **0** | **wins 4** | **1** | **0** |
+
+### Old scoresheet template
 
 The regression has one cause, not many: `showsProduct` is per brief, theme is per post.
 Fixing it means deriving theme from what each draft actually contains — a product block
