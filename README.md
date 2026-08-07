@@ -2,11 +2,11 @@
 
 Code-rendered marketing visuals for DriverTrack and Revive! Barnsley.
 Brand tokens plus HTML/CSS components, rendered to PNG by headless Chromium.
-No design canvas, no per-template manual step. New template = new component.
+No design canvas, no manual step. A graphic is the locked shell plus one or two blocks.
 
 ## What it does
 
-- `POST /render` takes a template name, format and data, returns a finished PNG.
+- `POST /render` takes a composed spec, returns a finished PNG.
 - Optionally uploads the result to Cloudflare R2 and returns a public URL.
 - Fonts are embedded, output is identical on any machine, sRGB, 2x for crispness.
 
@@ -32,18 +32,21 @@ No design canvas, no per-template manual step. New template = new component.
 | `R2_PUBLIC_BASE` | Upload to R2 | Usually same as `ASSET_BASE`. |
 | `ANTHROPIC_API_KEY` | Copy generation | From console.anthropic.com. Without it the Brief panel is hidden. |
 | `COPY_MODEL` | Optional | Defaults to `claude-sonnet-5`. |
+| `COPY_EFFORT` | Optional | Thinking depth for the planner: `low` to `max`. Unset uses the model default. |
+| `BRIEF_ENABLED` | Optional | `true` turns on conversational briefing. Off by default; the `/brief*` routes 404 without it. |
 
 ## Mobile app
 
 Open the service's root URL on your phone (`https://your-app.up.railway.app/`).
-Pick a brand, pick a template, edit the copy, hit Render. Save to camera roll or
-push straight into the LinkedIn share sheet.
+Pick a brand, write a brief, hit Plan the posts. Review the queue, then save to
+camera roll or push straight into the LinkedIn share sheet.
 
 Add it to your home screen (Safari: Share, then Add to Home Screen) and it runs
 full screen with its own icon like a native app.
 
-New templates appear in the app automatically as soon as they are registered,
-because each template exports a field schema the app reads at load.
+New blocks are available to the planner as soon as they are registered in
+`BLOCK_CATALOGUE`; the app itself needs no change, because it plans rather than
+filling in a form.
 
 ### Writing copy in the app
 
@@ -59,7 +62,7 @@ copy short enough to fit the layout.
 ## API
 
 ### `GET /health`
-Returns `{ ok: true, templates: [...] }`.
+Returns `{ ok: true, blocks: [...] }`.
 
 ### Post queue
 
@@ -70,7 +73,7 @@ Returns `{ ok: true, templates: [...] }`.
 | `POST` | `/posts` | Create. Accepts one object or an array. Renders and stores the image. |
 | `PATCH` | `/posts/:id` | Update. Changing `data` re-renders the image. |
 | `DELETE` | `/posts/:id` | Remove the post and its render |
-| `POST` | `/posts/rerender` | Re-render every post. Use after changing a template or brand tokens. |
+| `POST` | `/posts/rerender` | Re-render every post. Use after changing a block or brand tokens. |
 
 Image URLs are derived on read from `R2_PUBLIC_BASE`, not stored on the record,
 so changing the public base fixes every post at once. A `?v=` cache-buster is
@@ -81,9 +84,15 @@ Post shape:
 ```json
 {
   "brand": "drivertrack",
-  "template": "dt-verdict",
   "format": "square",
-  "data": { "headline": "..." },
+  "spec": {
+    "theme": "dark",
+    "eyebrow": "Screening",
+    "headline": "...",
+    "accentWord": "",
+    "display": false,
+    "blocks": [ { "type": "body", "text": "..." } ]
+  },
   "caption": "the LinkedIn caption",
   "firstComment": "goes in the first comment",
   "altText": "for accessibility",
@@ -98,8 +107,8 @@ Posts live in R2 under `posts/`, renders under `renders/`.
 
 ### `POST /plan`
 
-Turns a brief into complete posts: picks the template, writes every field, chooses a
-screenshot, writes the caption, first comment and alt text.
+Turns a brief into complete posts: picks the theme and the blocks, writes every
+field, chooses a screenshot, writes the caption, first comment and alt text.
 
 ```json
 { "brand": "drivertrack", "brief": "a week about peak hiring", "count": 3, "create": true }
@@ -108,10 +117,56 @@ screenshot, writes the caption, first comment and alt text.
 - `create: true` (default) writes them straight into the queue as drafts.
 - `create: false` returns the plan without saving, for review first.
 
-It is given the brand voice, every template's `useWhen` line, the screenshot
+It is given the brand voice, every block's `useWhen` line, the screenshot
 catalogue, and the posts already in the queue so it does not repeat angles or reuse
-the same template. Anything it invents that does not exist (unknown template or
+the same shape. Anything it invents that does not exist (unknown block or
 screenshot) is dropped and reported in `warnings` rather than reaching the renderer.
+
+### Conversational briefing (in progress, off by default)
+
+Being built to replace one-shot briefing with a conversation that converges on a working
+brief and text drafts before anything renders. Plan and rationale in
+`conversation-plan-v4.md`; the fixtures that decide whether it ships are in
+`gate-fixtures.md`.
+
+Set `BRIEF_ENABLED=true` to expose it. Sessions live in R2 under `briefs/`.
+
+| Method | Route | Does |
+|---|---|---|
+| `POST` | `/brief` | Start a session, and run the first turn if `text` is given. DriverTrack only. |
+| `GET` | `/brief/:id` | The full session |
+| `POST` | `/brief/:id/message` | Send a message; runs one turn. `{ text, rev }` |
+| `POST` | `/brief/:id/approve` | Render the settled drafts. `{ rev, only?, force? }` |
+| `POST` | `/brief/:id/abandon` | End it |
+| `GET` | `/briefs` | Resumable sessions, transcripts stripped |
+
+The chat model is a producer, not a writer: it interviews, keeps a structured brief, and
+hands that brief to the existing planner, which is still the only thing that writes a
+spec. Its tools are `update_brief`, `draft_posts`, `revise_drafts`, `edit_draft`,
+`declare_ready` and `reply`. Theme is server-enforced after every path that touches a
+spec, and copy budgets are checked on all of them.
+
+Approval is per draft, so a batch can be settled a post at a time. Up to three per call;
+a draft that already rendered is skipped, so retrying after a failure mid-batch cannot
+double-render.
+
+Sessions carry a `rev` for double-submit and a turn lock for the second message sent
+while the first is still running. Mutating calls, approve included, send the `rev` they
+last saw and get a `409` on a mismatch or a held lock. A lock older than two minutes is
+assumed dead and stolen. Untouched sessions are swept to `abandoned` after fourteen
+days, on read.
+
+With `BRIEF_ENABLED=true` the app's Make tab retires into a **Chat** tab: a sticky brief
+card showing what is settled and what is still assumed, the conversation, draft cards
+where they were produced, tappable chips from the model's own suggested answers, and a
+dictation button where the browser supports it. Quick plan keeps one-tap `POST /plan`
+alive inside the Chat view. With the flag off, the app is exactly what it was.
+
+The gate in `gate-fixtures.md` has been run and passed: chat beat the one-shot planner on
+invented figures and on copy budgets, and did not regress on theme or block choice.
+
+`check-app.sh` drives the chat view against a mock backend in a real browser and
+screenshots each step — no R2, no API key, no model calls.
 
 ### Product screenshots
 
@@ -140,54 +195,73 @@ Each shot carries a `description` in `src/lib/capture.js`. That is what makes
 screenshots content-aware: the planner reads the descriptions to pick the shot
 that supports the argument a post is making.
 
-### `POST /copy`
-```json
-{ "template": "dt-first-to-driver", "brief": "Peak hiring is coming, get in early" }
-```
-Returns `{ ok: true, values: { headline: "...", support: "..." } }`.
-
 ### `POST /render`
 ```json
 {
-  "template": "dt-first-to-driver",
-  "format": "square",
-  "data": { "headline": "...", "cta": "..." },
+  "spec": {
+    "theme": "dark",
+    "eyebrow": "Peak hiring",
+    "headline": "Screened before you open the office",
+    "accentWord": "before you open",
+    "display": false,
+    "blocks": [ { "type": "body", "text": "..." } ]
+  },
   "upload": false,
   "filename": "optional-name.png"
 }
 ```
 - `upload: false` (default) streams the PNG back.
 - `upload: true` uploads to R2 and returns `{ ok, url, width, height, bytes }`.
-- Omit any `data` field to use the template default.
+- A bare spec (no `spec` wrapper) is accepted too.
 
-## Templates
+## Blocks
 
-| Key | Brand | Default size | Purpose |
-|---|---|---|---|
-| `dt-pipeline-hero` | DriverTrack | 1200x1200 | Product hero with callbacks queue and a hero image zone |
-| `dt-first-to-driver` | DriverTrack | 1200x1200 | Speed-to-contact race: one applicant, four DSPs, who replied first |
+A graphic is the locked shell (ground, logo, eyebrow, headline) plus one or two
+blocks: `body`, `rows`, `compare`, `stat`, `screenshot`, `points`, `quote`, `cta`,
+`thread`. Two maximum, three only if one is a `cta`. Each is defined in
+`src/blocks.js` with a `useWhen` line the planner reads.
+
+## Themes
+
+Two, and the choice is a rule rather than a preference:
+
+- **dark** for anything showing the product: threads, screenshots, screening
+  decisions, pipelines.
+- **light** for bold statement posts: an opinion or a piece of advice with no
+  product in it.
+
+Blocks never name a colour. The composer emits each theme as CSS custom properties
+and blocks reference `var(--ink)` and so on, so one block renders in both.
 
 DriverTrack renders default to square (1200x1200).
-Revive! tokens are in place (`src/tokens/revive.js`); templates to follow.
+
+**Revive is not usable yet and is not offered in the app.** `src/tokens/revive.js` still
+carries the old flat `color` block rather than `themes`, and has no `budget`, so the
+planner rejects the brand with a clear message and the composer would render it in
+DriverTrack blue regardless (`compose.js` and `blocks.js` import the DriverTrack tokens
+directly). It comes back in `src/brands.js` when its token file has `themes` and
+`budget`.
 
 ## Local use
 
 ```bash
 npm install
-npm run render dt-first-to-driver square   # writes out/
 npm start                                  # HTTP service on :3000
+npm test                                   # pure tests, no network or Chromium
 ```
 
 Set `ASSET_BASE` locally if you want logos to load:
 ```bash
-ASSET_BASE="https://pub-xxxx.r2.dev" npm run render dt-first-to-driver square
+ASSET_BASE="https://pub-xxxx.r2.dev" npm start
 ```
 
-## Adding a template
+## Adding a block
 
-1. Copy an existing file in `src/templates/` as a starting point.
-2. Build the layout, pulling every colour and size from the brand token file.
-3. Register it in `src/templates/index.js`.
+1. Add a function to `src/blocks.js` returning `{ css, html }`.
+2. Take every size from the brand token file, and every colour from a CSS custom
+   property (`var(--ink)`), never a literal. The composer sets them per theme.
+3. Register it in `BLOCKS` and add a `useWhen` line to `BLOCK_CATALOGUE` so the
+   planner knows when to reach for it.
 
 ## Structure
 
@@ -196,17 +270,16 @@ src/
   tokens/        brand tokens (single source of truth)
     drivertrack.js
     revive.js
-  templates/     one file per template + index registry
   lib/
     render.js    Chromium render engine, font embedding
     r2.js        Cloudflare R2 upload
   server.js      HTTP service (deploy entry point)
   assets/fonts/  Inter weights, embedded at render time
-scripts/
-  render.js      local CLI render to out/
+test/
+  planner.test.js  validation and copy budgets, pure
 ```
 
 ## Notes
 
-- Fira Sans weights need adding to `src/assets/fonts/` before building Revive templates.
+- Fira Sans weights need adding to `src/assets/fonts/` before building Revive blocks.
 - Brand rules live in the token files as comments. Read them before designing.

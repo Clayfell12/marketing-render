@@ -12,7 +12,6 @@
 
 import { putJson, getJson, deleteKey, listKeys, uploadToR2 } from "./r2.js";
 import { renderToPng } from "./render.js";
-import { templates } from "../templates/index.js";
 import { compose } from "../compose.js";
 
 const PREFIX = "posts/";
@@ -46,18 +45,19 @@ function present(post) {
   return { ...post, imageUrl: imageUrlFor(post) };
 }
 
-// Render the template and push the PNG to R2 at the post's deterministic key.
+// Compose the post and push the PNG to R2 at the post's deterministic key.
 async function renderAndStore(post) {
-  // New posts carry a composed spec. Older ones carry a template name and data,
-  // and still render so an existing queue does not break.
-  let r;
-  if (post.spec) {
-    r = compose(post.spec);
-  } else {
-    const fn = templates[post.template];
-    if (!fn) throw new Error(`unknown template '${post.template}'`);
-    r = fn({ format: post.format || "square", ...(post.data || {}) });
+  // Every post carries a composed spec. Records from before the composer carried
+  // a template name instead; those templates are gone, so say so plainly rather
+  // than failing somewhere further down.
+  if (!post.spec) {
+    throw new Error(
+      post.template
+        ? `post ${post.id} predates the composer (template '${post.template}'); rewrite it with a spec`
+        : `post ${post.id} has no spec`
+    );
   }
+  const r = compose(post.spec);
   const png = await renderToPng({ html: r.html, width: r.width, height: r.height, scale: 2 });
   await uploadToR2(png, `${RENDER_PREFIX}${post.id}.png`);
   post.hasRender = true;
@@ -69,9 +69,7 @@ export async function createPost(input) {
   const {
     brand = "drivertrack",
     spec = null,
-    template,
     format = "square",
-    data = {},
     caption = "",
     firstComment = "",
     altText = "",
@@ -81,13 +79,12 @@ export async function createPost(input) {
     skipRender = false,
   } = input;
 
-  if (!spec && !template) throw new Error("a spec (or a legacy template) is required");
-  if (!spec && !templates[template]) throw new Error(`unknown template '${template}'`);
+  if (!spec) throw new Error("a spec is required");
 
   const now = new Date().toISOString();
   const post = {
     id: newId(),
-    brand, spec, template, format, data,
+    brand, spec, format,
     caption, firstComment, altText, note, scheduledFor,
     status: STATUSES.includes(status) ? status : "draft",
     hasRender: false,
@@ -129,15 +126,12 @@ export async function updatePost(id, patch = {}) {
 
   const specChanged =
     safe.spec && JSON.stringify(safe.spec) !== JSON.stringify(post.spec);
-  const dataChanged =
-    safe.data && JSON.stringify(safe.data) !== JSON.stringify(post.data);
-  const templateChanged = safe.template && safe.template !== post.template;
   const formatChanged = safe.format && safe.format !== post.format;
 
   Object.assign(post, safe, { id: post.id, updatedAt: new Date().toISOString() });
 
   // Anything that changes what the image looks like means the image is stale.
-  if (force || specChanged || dataChanged || templateChanged || formatChanged || !post.hasRender) {
+  if (force || specChanged || formatChanged || !post.hasRender) {
     await renderAndStore(post);
   }
 
@@ -145,7 +139,7 @@ export async function updatePost(id, patch = {}) {
   return present(post);
 }
 
-// Re-render every post. Useful after a template or brand token change.
+// Re-render every post. Useful after a block or brand token change.
 export async function rerenderAll() {
   const keys = await listKeys(PREFIX);
   const ids = keys.filter((k) => k.endsWith(".json"))

@@ -18,6 +18,76 @@ import { listPosts, createPost } from "./posts.js";
 const BRANDS = { drivertrack, revive };
 const MODEL = process.env.COPY_MODEL || "claude-sonnet-5";
 
+// Thinking depth. Left unset so the model's default applies, because the recorded
+// baseline in gate-fixtures.md was measured at the default and changing it here would
+// invalidate that measurement. Sweep it with COPY_EFFORT (low, medium, high, xhigh, max)
+// when there is something to compare against.
+const EFFORT = process.env.COPY_EFFORT || "";
+
+// A brand is only usable if its token file carries everything the pipeline reads.
+// Without this, revive fails at `bud.headline` inside buildPrompt with a TypeError and
+// the caller sees "Cannot read properties of undefined" as a 500.
+export function assertBrandReady(brand) {
+  const b = BRANDS[brand];
+  if (!b) throw new Error(`unknown brand '${brand}'`);
+  const missing = ["budget", "themes", "voice"].filter((k) => !b[k]);
+  if (missing.length) {
+    throw new Error(
+      `brand '${brand}' is not ready: tokens are missing ${missing.join(", ")}. ` +
+        `See src/tokens/${brand}.js.`
+    );
+  }
+  return b;
+}
+
+function words(s) {
+  return String(s == null ? "" : s).trim().split(/\s+/).filter(Boolean).length;
+}
+
+// What a conversational layer needs to know about blocks: the names and roughly what
+// each is for. Not the shapes — those are this file's business, and duplicating them
+// into a second prompt is how the two drift apart.
+export function blockNamesForPrompt() {
+  return BLOCK_CATALOGUE.map((b) => `${b.name}: ${b.useWhen.split(". ")[0]}.`);
+}
+
+// Copy budgets exist in the token file and are stated in the prompt, but nothing has
+// ever checked that the output obeys them. It does not: a display post came back at
+// seven words against a six-word budget on 5 August 2026. Type size is fixed by
+// legibility and cannot shrink, so over-budget copy wraps or overflows.
+//
+// Warnings, not errors. The graphic still renders; the caller decides what to do.
+export function checkBudgets(spec = {}, brand = "drivertrack") {
+  const bud = (BRANDS[brand] || {}).budget;
+  if (!bud) return [];
+
+  const out = [];
+  const flag = (field, text, budget) => {
+    const n = words(text);
+    if (n > budget) out.push({ field, words: n, budget });
+  };
+
+  flag("headline", spec.headline, spec.display ? bud.display : bud.headline);
+  flag("eyebrow", spec.eyebrow, 4);
+
+  for (const [i, b] of (spec.blocks || []).entries()) {
+    const at = (name) => `blocks[${i}].${name}`;
+    if (b.type === "body") flag(at("text"), b.text, bud.body);
+    if (b.type === "stat") flag(at("label"), b.label, bud.small);
+    if (b.type === "quote") flag(at("text"), b.text, bud.small);
+    if (b.type === "points") {
+      (b.items || []).forEach((x, j) => flag(at(`items[${j}]`), x, 8));
+    }
+    if (b.type === "rows") {
+      (b.items || []).forEach((r, j) => flag(at(`items[${j}].detail`), r.detail, bud.small));
+    }
+    if (b.type === "compare") {
+      (b.columns || []).forEach((c, j) => flag(at(`columns[${j}].text`), c.text, bud.small));
+    }
+  }
+  return out;
+}
+
 function buildPrompt({ brand, brief, count, recent }) {
   const b = BRANDS[brand];
   const v = b.voice;
@@ -86,6 +156,12 @@ HARD CONSTRAINTS
 - Use "display": true for a pure statement post: the headline runs large and centred
   and carries no blocks. Use it when the post is an opinion rather than a demonstration.
 - Choose blocks for the argument, never for variety.
+- Choose a theme. "dark" for anything showing the product: threads, screenshots,
+  screening decisions, pipelines. "light" for bold statement posts: an opinion or a
+  piece of advice with no product in it. This is a rule, not a preference. Mixing
+  them at random undoes the recognition that consistent assets build.
+- accentWord may pick out one short phrase from the headline, usually the payoff or
+  the turn. Leave it empty rather than forcing one. Never more than one phrase.
 
 WRITING
 - caption is the LinkedIn post: 120 to 250 words, short paragraphs, a hook in the first
@@ -98,8 +174,10 @@ WRITING
 Return ONLY a JSON array of ${count} objects, no markdown fences, no commentary:
 [
   {
+    "theme": "dark",
     "eyebrow": "Peak hiring",
     "headline": "the main line",
+    "accentWord": "one phrase from the headline to set in accent colour, or empty",
     "display": false,
     "blocks": [ { "type": "body", "text": "..." } ],
     "scheduledFor": "Monday",
@@ -111,57 +189,19 @@ Return ONLY a JSON array of ${count} objects, no markdown fences, no commentary:
 ]`;
 }
 
-export async function planPosts({ brand = "drivertrack", brief, count = 3, create = false }) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
-  if (!brief || !brief.trim()) throw new Error("A brief is required.");
-  if (!BRANDS[brand]) throw new Error(`unknown brand '${brand}'`);
-
-  const all = await listPosts().catch(() => []);
-  const recent = all.filter((p) => p.brand === brand && p.status !== "rejected").slice(0, 12);
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 8000,
-      messages: [{ role: "user", content: buildPrompt({ brand, brief, count, recent }) }],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Planning failed (${res.status}). ${body.slice(0, 200)}`);
-  }
-
-  const json = await res.json();
-  const text = (json.content || [])
-    .filter((x) => x.type === "text").map((x) => x.text).join("\n").trim();
-
-  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  let plans;
-  try {
-    plans = JSON.parse(cleaned);
-  } catch {
-    const m = cleaned.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error("Could not read the plan. Try rewording the brief.");
-    plans = JSON.parse(m[0]);
-  }
-  if (!Array.isArray(plans)) plans = [plans];
-
+// Turn whatever the model returned into posts the renderer can accept, dropping
+// anything invented rather than letting it reach the composer. Extracted from planPosts
+// unchanged, so that a conversational layer can re-validate a hand-edited draft without
+// spending another model call.
+export function validatePlan(plans, brand = "drivertrack") {
   const validBlocks = new Set(BLOCK_CATALOGUE.map((x) => x.name));
   const validShots = new Set(shotCatalogue().map((s) => s.name));
-  const dashes = (x) => String(x || "").replace(/\s*[\u2013\u2014]\s*/g, ", ").trim();
+  const dashes = (x) => String(x || "").replace(/\s*[–—]\s*/g, ", ").trim();
 
-  const clean = [];
+  const posts = [];
   const warnings = [];
 
-  for (const p of plans) {
+  for (const p of Array.isArray(plans) ? plans : [plans]) {
     // Validate blocks against what exists, so nothing invented reaches the renderer
     let blocks = Array.isArray(p.blocks) ? p.blocks : [];
     blocks = blocks.filter((bl) => {
@@ -186,14 +226,22 @@ export async function planPosts({ brand = "drivertrack", brief, count = 3, creat
 
     if (!p.headline) { warnings.push("dropped a post with no headline"); continue; }
 
-    clean.push({
+    const spec = {
+      theme: p.theme === "dark" ? "dark" : "light",
+      eyebrow: dashes(p.eyebrow),
+      headline: dashes(p.headline),
+      accentWord: dashes(p.accentWord || ""),
+      display: Boolean(p.display),
+      blocks,
+    };
+
+    for (const b of checkBudgets(spec, brand)) {
+      warnings.push(`${b.field} is ${b.words} words, budget ${b.budget}`);
+    }
+
+    posts.push({
       brand,
-      spec: {
-        eyebrow: dashes(p.eyebrow),
-        headline: dashes(p.headline),
-        display: Boolean(p.display),
-        blocks,
-      },
+      spec,
       caption: dashes(p.caption),
       firstComment: String(p.firstComment || ""),
       altText: String(p.altText || ""),
@@ -201,6 +249,62 @@ export async function planPosts({ brand = "drivertrack", brief, count = 3, creat
       scheduledFor: String(p.scheduledFor || ""),
     });
   }
+
+  return { posts, warnings };
+}
+
+// fetchImpl is injectable because the briefing turn loop nests this call inside its own
+// and its tests fake both models. Defaults to global fetch, so POST /plan is unchanged.
+export async function planPosts({ brand = "drivertrack", brief, count = 3, create = false, fetchImpl = fetch }) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
+  if (!brief || !brief.trim()) throw new Error("A brief is required.");
+  assertBrandReady(brand);
+
+  const all = await listPosts().catch(() => []);
+  const recent = all.filter((p) => p.brand === brand && p.status !== "rejected").slice(0, 12);
+
+  const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    // max_tokens caps thinking AND response text together, and thinking is on by
+    // default on current models. At 8000 a seven-post plan could exhaust the budget
+    // mid-array, and truncated JSON surfaced as "Could not read the plan. Try rewording
+    // the brief." — a message that blamed the brief for a token ceiling.
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 16000,
+      thinking: { type: "adaptive" },
+      ...(EFFORT ? { output_config: { effort: EFFORT } } : {}),
+      messages: [{ role: "user", content: buildPrompt({ brand, brief, count, recent }) }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Planning failed (${res.status}). ${body.slice(0, 200)}`);
+  }
+
+  const json = await res.json();
+  const text = (json.content || [])
+    .filter((x) => x.type === "text").map((x) => x.text).join("\n").trim();
+
+  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  let plans;
+  try {
+    plans = JSON.parse(cleaned);
+  } catch {
+    const m = cleaned.match(/\[[\s\S]*\]/);
+    if (!m) throw new Error("Could not read the plan. Try rewording the brief.");
+    plans = JSON.parse(m[0]);
+  }
+  if (!Array.isArray(plans)) plans = [plans];
+
+  const { posts: clean, warnings } = validatePlan(plans, brand);
 
   if (!clean.length) throw new Error("The plan produced nothing usable. " + warnings.join("; "));
 

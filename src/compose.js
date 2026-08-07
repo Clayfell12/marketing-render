@@ -10,7 +10,6 @@ import { drivertrack as t } from "./tokens/drivertrack.js";
 import { buildDocument } from "./lib/render.js";
 import { BLOCKS } from "./blocks.js";
 
-const c = t.color;
 const S = t.size;
 const sp = t.space;
 
@@ -21,15 +20,25 @@ function esc(x) {
 
 export function compose(spec = {}) {
   const {
+    theme = "light",
     eyebrow = "",
     headline = "",
+    accentWord = "",   // one phrase in the headline rendered in the accent colour
     display = false,   // true = statement mode: headline at display size, no blocks
     blocks = [],
   } = spec;
 
+  const T = t.themes[theme] || t.themes.light;
   const w = t.shell.canvas;
   const h = t.shell.canvas;
   const m = t.shell.margin;
+
+  // Emit every theme value as a CSS custom property. Blocks reference these, which
+  // is what lets one set of block code render correctly in both themes.
+  const vars = Object.entries(T)
+    .filter(([k]) => !["logo", "field", "gridOpacity"].includes(k))
+    .map(([k, v]) => `--${k}:${v};`)
+    .join("");
 
   // Enforce the block limit here rather than trusting the caller. Three only if
   // one is a cta, per the attention research in the spec.
@@ -46,21 +55,31 @@ export function compose(spec = {}) {
   const headSize = display ? S.display : S.headline;
   const headMax = display ? "13ch" : "17ch";
 
+  // One phrase in accent. Escape first, then wrap, so the markup cannot be injected.
+  let headHtml = esc(headline);
+  if (accentWord && headline.includes(accentWord)) {
+    headHtml = headHtml.replace(esc(accentWord), `<em>${esc(accentWord)}</em>`);
+  }
+
   // The headline sits directly under the eyebrow. Rather than pushing it below the
   // logo, a floated spacer the size of the logo makes the text wrap around it, so
   // only the lines that actually reach the logo are shortened.
   const logoAspect = 1620 / 480;
   const logoW = Math.round(t.shell.logoHeight * logoAspect);
-  const logoUrl = t.logo.url("accent");
+  const logoUrl = t.logo.url(T.logo);
 
   const css = `
     /* --- LOCKED SHELL --- */
-    .stage{position:relative;width:${w}px;height:${h}px;background:${c.canvas};
+    .stage{${vars}position:relative;width:${w}px;height:${h}px;background:var(--canvas);
       overflow:hidden;display:flex;flex-direction:column;}
 
-    /* the tinted field. a distinctive asset, identical on every graphic */
-    .field{position:absolute;left:0;right:0;bottom:0;height:58%;z-index:0;
-      background:linear-gradient(180deg, rgba(255,255,255,0) 0%, ${c.accentSoft} 40%, ${c.surfaceAlt} 100%);}
+    /* depth, not decoration: a soft lift plus a faint grid so the ground has texture */
+    .field{position:absolute;inset:0;background:${T.field};}
+    .grid{position:absolute;inset:0;opacity:${T.gridOpacity};
+      background-image:linear-gradient(var(--hairline) 1px, transparent 1px),
+                       linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+      background-size:80px 80px;
+      -webkit-mask-image:radial-gradient(900px 600px at 80% 10%, #000 0%, transparent 70%);}
 
     .logo{position:absolute;top:${m}px;right:${m}px;height:${t.shell.logoHeight}px;
       width:auto;z-index:5;}
@@ -71,12 +90,13 @@ export function compose(spec = {}) {
     .stage.statement .head{flex:1;padding-bottom:${m}px;gap:0;}
     .stage.statement .headline{margin:auto 0;}
     .eyebrow{display:flex;align-items:center;gap:${sp(2)};font-weight:${t.font.bold};
-      font-size:${S.label}px;color:${c.inkSubtle};letter-spacing:0.08em;
+      font-size:${S.label}px;color:var(--inkSubtle);letter-spacing:0.08em;
       text-transform:uppercase;line-height:1;}
     .diamond{width:${t.shell.diamond}px;height:${t.shell.diamond}px;border-radius:4px;
-      background:${c.accent};transform:rotate(45deg);flex:none;}
+      background:var(--accent);transform:rotate(45deg);flex:none;}
     .headline{font-weight:${t.font.extrabold};font-size:${headSize}px;line-height:1.06;
-      letter-spacing:-0.028em;color:${c.ink};max-width:${headMax};}
+      letter-spacing:-0.028em;color:var(--ink);max-width:${headMax};}
+    .headline em{font-style:normal;color:var(--accent);}
     /* invisible block the size of the logo, so headline lines flow around it */
     .logospacer{float:right;width:${logoW + 40}px;height:${Math.max(0, t.shell.logoHeight - S.label - 20)}px;}
 
@@ -96,10 +116,11 @@ export function compose(spec = {}) {
   const bodyHtml = `
     <div class="stage${display ? " statement" : ""}">
       <div class="field"></div>
+      <div class="grid"></div>
       ${logoUrl ? `<img class="logo" src="${logoUrl}">` : ""}
       <div class="head">
         ${eyebrow ? `<div class="eyebrow"><span class="diamond"></span>${esc(eyebrow)}</div>` : ""}
-        ${headline ? `<div class="headline"><span class="logospacer"></span>${esc(headline)}</div>` : ""}
+        ${headline ? `<div class="headline"><span class="logospacer"></span>${headHtml}</div>` : ""}
       </div>
       <div class="blocks${display ? " statement" : ""}">${blockHtml}</div>
     </div>`;

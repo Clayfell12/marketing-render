@@ -1,26 +1,53 @@
 // HTTP render service.
-// POST /render  { template, format, data, upload }  -> PNG (or JSON with R2 url if upload)
+// POST /render  { spec, upload, filename }  -> PNG (or JSON with R2 url if upload)
 // GET  /health  -> ok
 //
 // This is the deployable entry point. Railway runs this. The marketing-studio
-// skill calls POST /render to produce finished assets.
+// skill calls POST /render to produce finished assets. A spec is the composed
+// shape the planner emits: { theme, eyebrow, headline, accentWord, display, blocks }.
 
 import http from "node:http";
 import { renderToPng } from "./lib/render.js";
 import { uploadToR2 } from "./lib/r2.js";
-import { templates, schemas, brands, defaultsFor } from "./templates/index.js";
+import { brands } from "./brands.js";
+import { compose } from "./compose.js";
+import { BLOCKS } from "./blocks.js";
 import { appHtml } from "./app.js";
-import { generateCopy } from "./lib/copy.js";
 import { createPost, listPosts, getPost, updatePost, deletePost, rerenderAll } from "./lib/posts.js";
 import { discover, refreshShots, shotCatalogue } from "./lib/capture.js";
 import { planPosts } from "./lib/planner.js";
+import {
+  BriefError, createSession, requireSession, listSessions, abandonSession, withLock,
+} from "./lib/brief.js";
+import { runTurn } from "./lib/brief-turn.js";
+import { approveDrafts } from "./lib/brief-approve.js";
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.RENDER_API_KEY || null; // optional shared-secret gate
 
+// Conversational briefing is off unless asked for, so the whole feature is reversible
+// with a Railway variable rather than a revert. See conversation-plan-v4.md §14.
+const BRIEF_ENABLED = process.env.BRIEF_ENABLED === "true";
+
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { "content-type": "application/json", ...headers });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
+}
+
+// One user message, one turn, under the session's lock. The user's text is appended
+// inside `before` so it is persisted in the same write that takes the lock: a process
+// that dies mid-turn then leaves the message on the record rather than a held lock and
+// no trace of what was said.
+async function sendMessage(id, rev, text) {
+  const { session } = await withLock(id, {
+    rev,
+    allowStatuses: ["open", "drafted", "ready"],
+    before: (s) => {
+      s.transcript.push({ role: "user", text, at: new Date().toISOString() });
+    },
+    work: (s) => runTurn(s),
+  });
+  return session;
 }
 
 async function readBody(req) {
@@ -43,20 +70,13 @@ const server = http.createServer(async (req, res) => {
 
   // Mobile app UI
   if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = appHtml({ schemas, brands, requiresKey: Boolean(API_KEY), copyEnabled: Boolean(process.env.ANTHROPIC_API_KEY) });
+    const html = appHtml({ brands, requiresKey: Boolean(API_KEY), briefEnabled: BRIEF_ENABLED });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
 
-  // Template defaults, so the app can prefill the form with the real copy
-  if (req.method === "GET" && req.url.startsWith("/defaults/")) {
-    const key = decodeURIComponent(req.url.slice("/defaults/".length));
-    if (!templates[key]) return send(res, 404, { error: "unknown template" });
-    return send(res, 200, defaultsFor(key));
-  }
-
   if (req.method === "GET" && req.url === "/health") {
-    return send(res, 200, { ok: true, templates: Object.keys(templates) });
+    return send(res, 200, { ok: true, blocks: Object.keys(BLOCKS) });
   }
 
   // --- Planner ---
@@ -75,6 +95,63 @@ const server = http.createServer(async (req, res) => {
       });
       return send(res, 200, out);
     } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
+  }
+
+  // --- Conversational briefing -------------------------------------------
+  // Phase 3: sessions, the turn loop, drafting and partial approve.
+  // Off unless BRIEF_ENABLED.
+  if (req.url === "/briefs" || req.url === "/brief" || req.url.startsWith("/brief/")) {
+    if (!BRIEF_ENABLED) return send(res, 404, { error: "not found" });
+    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
+      return send(res, 401, { error: "unauthorized" });
+    }
+
+    const parts = req.url.split("?")[0].split("/").filter(Boolean); // brief/:id/:action
+    const [root, id, action] = parts;
+
+    try {
+      if (req.method === "GET" && root === "briefs") {
+        return send(res, 200, { ok: true, sessions: await listSessions() });
+      }
+      if (req.method === "POST" && root === "brief" && !id) {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        const session = await createSession({ brand: body.brand || "drivertrack" });
+        const text = String(body.text || "").trim();
+        if (!text) return send(res, 200, session);
+        return send(res, 200, await sendMessage(session.id, session.rev, text));
+      }
+      if (req.method === "GET" && root === "brief" && id && !action) {
+        return send(res, 200, await requireSession(id));
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "message") {
+        const body = await readBody(req);
+        if (!body) return send(res, 400, { error: "invalid JSON" });
+        const text = String(body.text || "").trim();
+        if (!text) return send(res, 400, { error: "a message is required" });
+        return send(res, 200, await sendMessage(id, body.rev, text));
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "approve") {
+        const body = (await readBody(req)) || {};
+        const out = await approveDrafts(id, {
+          rev: body.rev,
+          only: body.only,
+          force: Boolean(body.force),
+        });
+        // A mid-batch failure still persisted its successes, so this is a 200 carrying
+        // ok: false rather than an error: the client needs the posts that did render.
+        return send(res, 200, out);
+      }
+      if (req.method === "POST" && root === "brief" && id && action === "abandon") {
+        const body = (await readBody(req)) || {};
+        return send(res, 200, await abandonSession(id, body.rev));
+      }
+      return send(res, 404, { error: "not found" });
+    } catch (e) {
+      // BriefError carries the status it wants; anything else is genuinely a 500.
+      if (e instanceof BriefError) return send(res, e.status, { error: e.message });
       return send(res, 500, { error: e.message });
     }
   }
@@ -146,29 +223,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Copy generation
-  if (req.method === "POST" && req.url === "/copy") {
-    if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
-      return send(res, 401, { error: "unauthorized" });
-    }
-    const body = await readBody(req);
-    if (!body) return send(res, 400, { error: "invalid JSON" });
-    const { template, brief } = body;
-    const schema = schemas.find((s) => s.key === template);
-    if (!schema) return send(res, 404, { error: "unknown template" });
-    if (!brief || !brief.trim()) return send(res, 400, { error: "Write a brief first." });
-    try {
-      const values = await generateCopy({
-        schema,
-        defaults: defaultsFor(template),
-        brief: brief.trim(),
-      });
-      return send(res, 200, { ok: true, values });
-    } catch (e) {
-      return send(res, 500, { error: e.message });
-    }
-  }
-
   if (req.method === "POST" && req.url === "/render") {
     if (API_KEY && req.headers["x-api-key"] !== API_KEY) {
       return send(res, 401, { error: "unauthorized" });
@@ -176,21 +230,23 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     if (!body) return send(res, 400, { error: "invalid JSON" });
 
-    const { template, format, data = {}, upload = false, filename } = body;
-    const tpl = templates[template];
-    if (!tpl) {
-      return send(res, 404, {
-        error: `unknown template '${template}'`,
-        available: Object.keys(templates),
+    // A spec, not a template name: the composer builds the graphic from the
+    // locked shell plus its blocks. Accept a bare spec too, for convenience.
+    const { spec, upload = false, filename } = body;
+    const s = spec || (body.headline || body.blocks ? body : null);
+    if (!s || (!s.headline && !Array.isArray(s.blocks))) {
+      return send(res, 400, {
+        error: "a spec is required: { theme, eyebrow, headline, accentWord, display, blocks }",
+        blocks: Object.keys(BLOCKS),
       });
     }
 
     try {
-      const { html, width, height } = tpl({ format, ...data });
+      const { html, width, height } = compose(s);
       const png = await renderToPng({ html, width, height, scale: 2 });
 
       if (upload) {
-        const key = filename || `${template}-${format || "default"}-${Date.now()}.png`;
+        const key = filename || `render-${Date.now()}.png`;
         const url = await uploadToR2(png, key);
         return send(res, 200, { ok: true, url, width, height, bytes: png.length });
       }

@@ -1,36 +1,70 @@
 // DriverTrack design tokens
 // Pulled from the live site at www.drivertrack.co (active theme), July 2026.
-// Flat, high contrast, white ground with a single blue accent.
+// Flat, high contrast, a single blue accent, in a light and a dark theme.
 // These are the single source of truth. Templates never hardcode a colour or size.
 
 export const drivertrack = {
   name: "DriverTrack",
 
-  color: {
-    // Core surfaces
-    canvas: "#FFFFFF",       // dominant background, ~60%
-    surface: "#FFFFFF",      // cards
-    surfaceAlt: "#F5F5F6",   // tinted panels
-    hairline: "#D1D5DB",     // dividers, borders
-    // Ink
-    ink: "#111113",          // headlines
-    inkMuted: "#3C3C43",     // body
-    inkSubtle: "#5A5A63",    // captions, labels
-    inkFaint: "#8A8A93",     // timestamps, least important
-    // Accent
-    accent: "#2563EB",       // CTAs and one deliberate emphasis, ~10%
-    accentSoft: "#DBEAFE",   // tint panels behind accent content
-    accentInk: "#FFFFFF",    // text on accent
-    // Near-black ground for the rare dark asset
-    dark: "#0A0A0B",
-    darkInk: "#E9EDF3",
-    // Status, for pass/decline/callback screening states
-    success: "#15803D",
-    successSoft: "#DCFCE7",
-    warning: "#966405",
-    warningSoft: "#FEF3C7",
-    danger: "#B91C1C",
-    dangerSoft: "#FEE2E2",
+  // Two themes. Blocks never read these directly: the composer emits them as CSS
+  // custom properties and blocks reference var(--name). That way a block is written
+  // once and renders correctly in both.
+  //
+  // Note the three elevation levels in each theme. On dark the panel is LIGHTER than
+  // the ground and the inset is between; on light the panel is pure white and the
+  // ground is tinted. Same relationship, inverted. Without it nothing reads as raised.
+  themes: {
+    light: {
+      canvas: "#F4F6FA",      // ground, deliberately not pure white
+      surfaceAlt: "#FFFFFF",  // panels, sit above the ground
+      surface: "#F1F4F9",     // insets: bubbles, panel headers
+      hairline: "#E4E8EF",
+      ink: "#111113",
+      inkMuted: "#3C3C43",
+      inkSubtle: "#5A5A63",
+      inkFaint: "#8A8A93",
+      accent: "#2563EB",
+      accentFill: "#2563EB",
+      accentSoft: "#E4EDFD",
+      onAccent: "#FFFFFF",
+      success: "#15803D", successSoft: "#DCFCE7",
+      warning: "#966405", warningSoft: "#FEF3C7",
+      danger: "#B91C1C",  dangerSoft: "#FEE2E2",
+      shadow: "rgba(17,25,45,0.06)",
+      panelShadow: "rgba(17,25,45,0.10)",
+      logo: "accent",
+      field: "radial-gradient(1100px 700px at 85% 8%, #FFFFFF 0%, rgba(255,255,255,0) 60%)",
+      gridOpacity: 0.5,
+    },
+    dark: {
+      canvas: "#11151C",
+      surfaceAlt: "#212833",  // panels
+      surface: "#181D26",     // insets
+      hairline: "#2C3441",
+      ink: "#E9EDF3",
+      inkMuted: "#9FA7B4",
+      inkSubtle: "#88919F",
+      inkFaint: "#6B7688",
+      accent: "#3B82F6",      // lifted for contrast on dark
+      accentFill: "#2563EB",  // button fills stay the brand blue
+      accentSoft: "rgba(59,130,246,0.14)",
+      onAccent: "#FFFFFF",
+      success: "#4ADE80", successSoft: "rgba(74,222,128,0.14)",
+      warning: "#EAB308", warningSoft: "rgba(234,179,8,0.14)",
+      danger: "#F87171",  dangerSoft: "rgba(248,113,113,0.14)",
+      shadow: "rgba(0,0,0,0.35)",
+      panelShadow: "rgba(0,0,0,0.45)",
+      logo: "white",
+      field: "radial-gradient(1100px 700px at 85% 8%, #141E2E 0%, rgba(20,30,46,0) 62%)",
+      gridOpacity: 0.35,
+    },
+  },
+
+  // When to use which. This is a rule, not a preference: mixing them at random
+  // undoes the recognition that consistent assets are supposed to build.
+  themeRule: {
+    dark: "Anything showing the product: screenshots, threads, screening decisions, pipelines.",
+    light: "Bold statement posts: an opinion, an observation, a piece of advice with no product in it.",
   },
 
 
